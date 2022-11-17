@@ -18,6 +18,7 @@ use execution::types::{CallOpts, ExecutionBlock};
 use execution::ExecutionClient;
 
 use crate::errors::NodeError;
+use crate::utils::MapExt as _;
 
 pub struct Node {
     consensus: ConsensusClient<NimbusRpc>,
@@ -98,15 +99,12 @@ impl Node {
         self.finalized_payloads
             .insert(finalized_payload.block_number, finalized_payload);
 
-        while self.payloads.len() > self.history_size {
-            self.payloads.pop_first();
-        }
+        self.payloads.keep_last(self.history_size);
 
         // only save one finalized block per epoch
         // finality updates only occur on epoch boundries
-        while self.finalized_payloads.len() > usize::max(self.history_size / 32, 1) {
-            self.finalized_payloads.pop_first();
-        }
+        self.finalized_payloads
+            .keep_last(usize::max(self.history_size / 32, 1));
 
         Ok(())
     }
@@ -273,6 +271,7 @@ impl Node {
     }
 
     fn get_payload(&self, block: BlockTag) -> Result<&ExecutionPayload, BlockNotFoundError> {
+        #[allow(unstable_name_collisions)]
         match block {
             BlockTag::Latest => {
                 let payload = self.payloads.last_key_value();
