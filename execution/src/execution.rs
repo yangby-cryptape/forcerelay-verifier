@@ -10,9 +10,9 @@ use eyre::Result;
 
 use common::utils::hex_str_to_bytes;
 use consensus::types::ExecutionPayload;
+use ethereum::util::ordered_trie_root;
 use futures::future::join_all;
 use revm::KECCAK_EMPTY;
-use triehash_ethereum::ordered_trie_root;
 
 use crate::errors::ExecutionError;
 use crate::types::Transactions;
