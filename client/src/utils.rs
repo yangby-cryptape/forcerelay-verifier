@@ -17,12 +17,7 @@ where
     fn keep_last(&mut self, len: usize) {
         if self.len() > len {
             let split_size = self.len() - len;
-            let split_key = self
-                .keys()
-                .skip(split_size)
-                .next()
-                .cloned()
-                .expect("checked");
+            let split_key = self.keys().nth(split_size).cloned().expect("checked");
             *self = self.split_off(&split_key);
         }
     }

@@ -63,7 +63,7 @@ impl ExecutionRpc for HttpRpc {
         raw_tx.to = Some(opts.to.into());
         raw_tx.from = opts.from;
         raw_tx.value = opts.value;
-        raw_tx.gas = Some(opts.gas.unwrap_or(U256::from(100_000_000)));
+        raw_tx.gas = Some(opts.gas.unwrap_or_else(|| U256::from(100_000_000)));
         raw_tx.max_fee_per_gas = Some(U256::zero());
         raw_tx.max_priority_fee_per_gas = Some(U256::zero());
         raw_tx.data = opts
@@ -92,8 +92,8 @@ impl ExecutionRpc for HttpRpc {
         Ok(code.to_vec())
     }
 
-    async fn send_raw_transaction(&self, bytes: &Vec<u8>) -> Result<H256> {
-        let bytes = Bytes::from(bytes.as_slice().to_owned());
+    async fn send_raw_transaction(&self, bytes: &[u8]) -> Result<H256> {
+        let bytes = Bytes::from(bytes.to_owned());
         let tx = self
             .provider
             .send_raw_transaction(bytes)

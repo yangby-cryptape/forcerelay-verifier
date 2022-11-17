@@ -1,5 +1,4 @@
 use std::{
-    cmp,
     collections::{BTreeMap, HashMap},
     str::FromStr,
     sync::Arc,
@@ -121,7 +120,7 @@ impl<'a, R: ExecutionRpc> Evm<'a, R> {
             gas_price: opts.gas_price,
         };
 
-        let block_moved = block.clone();
+        let block_moved = block;
         let mut list = rpc
             .create_access_list(&opts_moved, block_moved)
             .await
@@ -149,7 +148,7 @@ impl<'a, R: ExecutionRpc> Evm<'a, R> {
 
         let mut account_map = HashMap::new();
         for chunk in list.chunks(PARALLEL_QUERY_BATCH_SIZE) {
-            let account_chunk_futs = chunk.into_iter().map(|account| {
+            let account_chunk_futs = chunk.iter().map(|account| {
                 let account_fut = execution.get_account(
                     &account.address,
                     Some(account.storage_keys.as_slice()),
@@ -177,8 +176,8 @@ impl<'a, R: ExecutionRpc> Evm<'a, R> {
 
         env.tx.transact_to = TransactTo::Call(opts.to);
         env.tx.caller = opts.from.unwrap_or(Address::zero());
-        env.tx.value = opts.value.unwrap_or(U256::from(0));
-        env.tx.data = Bytes::from(opts.data.clone().unwrap_or(vec![]));
+        env.tx.value = opts.value.unwrap_or_else(|| U256::from(0));
+        env.tx.data = Bytes::from(opts.data.clone().unwrap_or_default());
         env.tx.gas_limit = opts.gas.map(|v| v.as_u64()).unwrap_or(u64::MAX);
         env.tx.gas_price = opts.gas_price.unwrap_or(U256::zero());
 
@@ -222,7 +221,7 @@ impl<'a, R: ExecutionRpc> ProofDB<'a, R> {
 
     fn get_account(&mut self, address: Address, slots: &[H256]) -> Result<Account> {
         let execution = self.execution.clone();
-        let addr = address.clone();
+        let addr = address;
         let payload = self.current_payload.clone();
         let slots = slots.to_owned();
 
@@ -267,7 +266,7 @@ impl<'a, R: ExecutionRpc> Database for ProofDB<'a, R> {
         let payload = self
             .payloads
             .get(&number)
-            .ok_or(BlockNotFoundError::new(BlockTag::Number(number)))?;
+            .ok_or_else(|| BlockNotFoundError::new(BlockTag::Number(number)))?;
         Ok(H256::from_slice(&payload.block_hash))
     }
 
@@ -282,20 +281,18 @@ impl<'a, R: ExecutionRpc> Database for ProofDB<'a, R> {
 
         Ok(match self.accounts.get(&address) {
             Some(account) => match account.slots.get(&slot) {
-                Some(slot) => slot.clone(),
-                None => self
+                Some(slot) => *slot,
+                None => *self
                     .get_account(address, &[slot])?
                     .slots
                     .get(&slot)
-                    .unwrap()
-                    .clone(),
+                    .unwrap(),
             },
-            None => self
+            None => *self
                 .get_account(address, &[slot])?
                 .slots
                 .get(&slot)
-                .unwrap()
-                .clone(),
+                .unwrap(),
         })
     }
 

@@ -42,7 +42,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
 
         let proof = self
             .rpc
-            .get_proof(&address, slots, payload.block_number)
+            .get_proof(address, slots, payload.block_number)
             .await?;
 
         let account_path = keccak256(address.as_bytes()).to_vec();
@@ -69,7 +69,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
 
             let is_valid = verify_proof(
                 &storage_proof.proof,
-                &proof.storage_hash.as_bytes().to_vec(),
+                proof.storage_hash.as_bytes(),
                 &key_hash.to_vec(),
                 &value,
             );
@@ -111,7 +111,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
         })
     }
 
-    pub async fn send_raw_transaction(&self, bytes: &Vec<u8>) -> Result<H256> {
+    pub async fn send_raw_transaction(&self, bytes: &[u8]) -> Result<H256> {
         self.rpc.send_raw_transaction(bytes).await
     }
 
@@ -126,7 +126,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
         let tx_hashes = payload
             .transactions
             .iter()
-            .map(|tx| H256::from_slice(&keccak256(tx.to_vec())))
+            .map(|tx| H256::from_slice(&keccak256(tx)))
             .collect::<Vec<H256>>();
 
         let txs = if full_tx {
@@ -208,10 +208,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
         let receipts = join_all(receipts_fut).await;
         let receipts = receipts.into_iter().collect::<Result<Vec<_>>>()?;
 
-        let receipts_encoded: Vec<Vec<u8>> = receipts
-            .iter()
-            .map(|receipt| encode_receipt(&receipt))
-            .collect();
+        let receipts_encoded: Vec<Vec<u8>> = receipts.iter().map(encode_receipt).collect();
 
         let expected_receipt_root = ordered_trie_root(receipts_encoded);
         let expected_receipt_root = H256::from_slice(&expected_receipt_root.to_fixed_bytes());
@@ -250,13 +247,12 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
         let payload = payload.unwrap();
 
         let tx_encoded = tx.rlp().to_vec();
-        let txs_encoded = payload
+        if !payload
             .transactions
             .iter()
             .map(|tx| tx.to_vec())
-            .collect::<Vec<_>>();
-
-        if !txs_encoded.contains(&tx_encoded) {
+            .any(|x| x == tx_encoded)
+        {
             return Err(ExecutionError::MissingTransaction(hash.to_string()).into());
         }
 
