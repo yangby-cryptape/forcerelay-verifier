@@ -1,4 +1,5 @@
-use std::collections::BTreeMap;
+use ckb_jsonrpc_types::Transaction as CkbTransaction;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,13 +10,14 @@ use eyre::{eyre, Result};
 use common::errors::BlockNotFoundError;
 use common::types::BlockTag;
 use config::Config;
-use consensus::rpc::nimbus_rpc::NimbusRpc;
+use consensus::rpc::{nimbus_rpc::NimbusRpc, ConsensusRpc};
 use consensus::types::{ExecutionPayload, Header};
 use consensus::ConsensusClient;
 use execution::evm::Evm;
-use execution::rpc::http_rpc::HttpRpc;
+use execution::rpc::{http_rpc::HttpRpc, ExecutionRpc};
 use execution::types::{CallOpts, ExecutionBlock};
 use execution::ExecutionClient;
+use forcerelay::assembler::ForcerelayAssembler;
 
 use crate::errors::NodeError;
 
@@ -26,6 +28,8 @@ pub struct Node {
     payloads: BTreeMap<u64, ExecutionPayload>,
     finalized_payloads: BTreeMap<u64, ExecutionPayload>,
     pub history_size: usize,
+    block_number_slots: HashMap<u64, u64>,
+    ckb_assembler: ForcerelayAssembler,
 }
 
 impl Node {
@@ -33,6 +37,8 @@ impl Node {
         let consensus_rpc = &config.consensus_rpc;
         let checkpoint_hash = &config.checkpoint;
         let execution_rpc = &config.execution_rpc;
+        let ckb_rpc = &config.ckb_rpc;
+        let typeargs = &config.lightclient_typeargs;
 
         let consensus = ConsensusClient::new(consensus_rpc, checkpoint_hash, config.clone())
             .map_err(NodeError::ConsensusClientCreationError)?;
@@ -42,6 +48,8 @@ impl Node {
 
         let payloads = BTreeMap::new();
         let finalized_payloads = BTreeMap::new();
+        let block_number_slots = HashMap::new();
+        let ckb_assembler = ForcerelayAssembler::new(ckb_rpc, typeargs);
 
         Ok(Node {
             consensus,
@@ -50,6 +58,8 @@ impl Node {
             payloads,
             finalized_payloads,
             history_size: 64,
+            block_number_slots,
+            ckb_assembler,
         })
     }
 
@@ -58,6 +68,7 @@ impl Node {
             .sync()
             .await
             .map_err(NodeError::ConsensusSyncError)?;
+        self.update_number_slots().await?;
         self.update_payloads().await
     }
 
@@ -66,6 +77,7 @@ impl Node {
             .advance()
             .await
             .map_err(NodeError::ConsensusAdvanceError)?;
+        self.update_number_slots().await?;
         self.update_payloads().await
     }
 
@@ -74,6 +86,19 @@ impl Node {
             .duration_until_next_update()
             .to_std()
             .unwrap()
+    }
+
+    async fn update_number_slots(&mut self) -> Result<(), NodeError> {
+        let finalized_header = self.consensus.get_finalized_header();
+        let finalized_payload = self
+            .consensus
+            .get_execution_payload(&Some(finalized_header.slot))
+            .await
+            .map_err(NodeError::ConsensusPayloadError)?;
+
+        self.block_number_slots
+            .insert(finalized_payload.block_number, finalized_header.slot);
+        Ok(())
     }
 
     async fn update_payloads(&mut self) -> Result<(), NodeError> {
@@ -268,6 +293,37 @@ impl Node {
             Ok(payload) => self.execution.get_block(payload.1, full_tx).await.map(Some),
             Err(_) => Ok(None),
         }
+    }
+
+    // assemble ckb transaction by ethereum hash which refers to the IBC transaction
+    pub async fn get_ckb_transaction_by_hash(
+        &self,
+        tx_hash: &H256,
+    ) -> Result<Option<CkbTransaction>> {
+        let eth_transaction = match self.execution.rpc.get_transaction(tx_hash).await? {
+            Some(tx) => tx,
+            None => return Ok(None),
+        };
+        let eth_receipt = match self.execution.rpc.get_transaction_receipt(tx_hash).await? {
+            Some(receipt) => receipt,
+            None => return Ok(None),
+        };
+        let mut slot = 0;
+        if let Some(block_number) = eth_transaction.block_number {
+            if let Some(eth_slot) = self.block_number_slots.get(&block_number.as_u64()) {
+                slot = *eth_slot;
+            }
+        }
+        if slot > 0 {
+            let block = self.consensus.rpc.get_block(slot).await?;
+            let headers = self.consensus.get_fianlized_headers();
+            let ckb_transaction = self
+                .ckb_assembler
+                .assemble_tx(headers, &block, &eth_transaction, &eth_receipt)
+                .await?;
+            return Ok(Some(ckb_transaction.data().into()));
+        }
+        return Ok(None);
     }
 
     pub fn chain_id(&self) -> u64 {

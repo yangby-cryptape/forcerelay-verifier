@@ -1,0 +1,23 @@
+[package]
+name = "forcerelay"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ckb-types = "0.105.1"
+ckb-jsonrpc-types = "0.105.1"
+ckb-sdk = "2.3.1"
+reqwest = { version = "0.11", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+eyre = "0.6.8"
+serde = { version = "1.0.143", features = ["derive"] }
+serde_json = "1.0.85"
+hex = "0.4.3"
+futures = "0.3.23"
+async-trait = "0.1.57"
+log = "0.4.17"
+thiserror = "1.0.37"
+ethers = "1.0.2"
+jsonrpc-core = "18"
+
+consensus = { path = "../consensus" }

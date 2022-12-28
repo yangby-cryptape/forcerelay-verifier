@@ -12,6 +12,7 @@ members = [
     "config",
     "consensus",
     "execution",
+    "forcerelay"
 ]
 
 [dependencies]

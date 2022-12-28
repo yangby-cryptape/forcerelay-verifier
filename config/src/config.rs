@@ -15,6 +15,9 @@ use crate::utils::{bytes_deserialize, bytes_serialize};
 pub struct Config {
     pub consensus_rpc: String,
     pub execution_rpc: String,
+    pub ckb_rpc: String,
+    #[serde(deserialize_with = "bytes_deserialize")]
+    pub lightclient_typeargs: Vec<u8>,
     pub rpc_port: Option<u16>,
     #[serde(
         deserialize_with = "bytes_deserialize",

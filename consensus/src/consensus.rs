@@ -24,7 +24,7 @@ use super::utils::*;
 // does not implement force updates
 
 pub struct ConsensusClient<R: ConsensusRpc> {
-    rpc: R,
+    pub rpc: R,
     store: LightClientStore,
     initial_checkpoint: Vec<u8>,
     pub last_checkpoint: Option<Vec<u8>>,
@@ -39,6 +39,7 @@ struct LightClientStore {
     optimistic_header: Header,
     previous_max_active_participants: u64,
     current_max_active_participants: u64,
+    all_finalized_headers: Vec<Header>,
 }
 
 impl<R: ConsensusRpc> ConsensusClient<R> {
@@ -91,6 +92,10 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
 
     pub fn get_finalized_header(&self) -> &Header {
         &self.store.finalized_header
+    }
+
+    pub fn get_fianlized_headers(&self) -> &Vec<Header> {
+        &self.store.all_finalized_headers
     }
 
     pub async fn sync(&mut self) -> Result<()> {
@@ -187,6 +192,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             optimistic_header: bootstrap.header.clone(),
             previous_max_active_participants: 0,
             current_max_active_participants: 0,
+            all_finalized_headers: vec![bootstrap.header.clone()],
         };
 
         Ok(())
@@ -362,6 +368,11 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                     self.store.optimistic_header = self.store.finalized_header.clone();
                 }
             }
+        }
+
+        // collect all finalized headers to offer verification support
+        if let Some(header) = update.finalized_header.as_ref() {
+            self.store.all_finalized_headers.push(header.clone());
         }
     }
 

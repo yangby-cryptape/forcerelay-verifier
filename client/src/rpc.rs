@@ -1,3 +1,4 @@
+use ckb_jsonrpc_types::Transaction as CkbTransaction;
 use ethers::{
     abi::AbiEncode,
     types::{Address, Filter, Log, Transaction, TransactionReceipt, H256, U256},
@@ -112,6 +113,15 @@ trait EthRpc {
 trait NetRpc {
     #[method(name = "version")]
     async fn version(&self) -> Result<String, Error>;
+}
+
+#[rpc(server, namespace = "forcerelay")]
+trait ForcerelayRpc {
+    #[method(name = "getForcerelayCkbTransaction")]
+    async fn get_forcerelay_ckb_transaction(
+        &self,
+        hash: &str,
+    ) -> Result<Option<CkbTransaction>, Error>;
 }
 
 #[derive(Clone)]
@@ -279,6 +289,19 @@ impl NetRpcServer for RpcInner {
     }
 }
 
+#[async_trait]
+impl ForcerelayRpcServer for RpcInner {
+    async fn get_forcerelay_ckb_transaction(
+        &self,
+        hash: &str,
+    ) -> Result<Option<CkbTransaction>, Error> {
+        let node = self.node.read().await;
+        let hash = H256::from_slice(&convert_err(hex_str_to_bytes(hash))?);
+        let ckb_transaction = convert_err(node.get_ckb_transaction_by_hash(&hash).await)?;
+        Ok(ckb_transaction)
+    }
+}
+
 async fn start(rpc: RpcInner) -> Result<(HttpServerHandle, SocketAddr)> {
     let addr = format!("127.0.0.1:{}", rpc.port);
     let server = HttpServerBuilder::default().build(addr).await?;
@@ -287,10 +310,12 @@ async fn start(rpc: RpcInner) -> Result<(HttpServerHandle, SocketAddr)> {
 
     let mut methods = Methods::new();
     let eth_methods: Methods = EthRpcServer::into_rpc(rpc.clone()).into();
-    let net_methods: Methods = NetRpcServer::into_rpc(rpc).into();
+    let net_methods: Methods = NetRpcServer::into_rpc(rpc.clone()).into();
+    let forcerelay_methods: Methods = ForcerelayRpcServer::into_rpc(rpc).into();
 
     methods.merge(eth_methods)?;
     methods.merge(net_methods)?;
+    methods.merge(forcerelay_methods)?;
 
     let handle = server.start(methods)?;
 

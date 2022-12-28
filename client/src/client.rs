@@ -24,6 +24,8 @@ pub struct ClientBuilder {
     network: Option<Network>,
     consensus_rpc: Option<String>,
     execution_rpc: Option<String>,
+    ckb_rpc: Option<String>,
+    lightclient_typeargs: Option<Vec<u8>>,
     checkpoint: Option<Vec<u8>>,
     rpc_port: Option<u16>,
     data_dir: Option<PathBuf>,
@@ -49,6 +51,18 @@ impl ClientBuilder {
 
     pub fn execution_rpc(mut self, execution_rpc: &str) -> Self {
         self.execution_rpc = Some(execution_rpc.to_string());
+        self
+    }
+
+    pub fn ckb_rpc(mut self, ckb_rpc: &str) -> Self {
+        self.ckb_rpc = Some(ckb_rpc.to_string());
+        self
+    }
+
+    pub fn lightclient_typeargs(mut self, typeargs: &str) -> Self {
+        let typeargs = hex::decode(typeargs.strip_prefix("0x").unwrap_or(typeargs))
+            .expect("cannot parse lightclient");
+        self.lightclient_typeargs = Some(typeargs);
         self
     }
 
@@ -111,6 +125,22 @@ impl ClientBuilder {
                 .clone()
         });
 
+        let ckb_rpc = self.ckb_rpc.unwrap_or_else(|| {
+            self.config
+                .as_ref()
+                .expect("missing ckb rpc")
+                .ckb_rpc
+                .clone()
+        });
+
+        let lightclient_typeargs = if let Some(typeargs) = self.lightclient_typeargs {
+            typeargs
+        } else if let Some(config) = &self.config {
+            config.lightclient_typeargs.clone()
+        } else {
+            vec![0u8; 32]
+        };
+
         let checkpoint = if let Some(checkpoint) = self.checkpoint {
             checkpoint
         } else if let Some(config) = &self.config {
@@ -152,6 +182,8 @@ impl ClientBuilder {
         let config = Config {
             consensus_rpc,
             execution_rpc,
+            ckb_rpc,
+            lightclient_typeargs,
             checkpoint,
             rpc_port,
             data_dir,
