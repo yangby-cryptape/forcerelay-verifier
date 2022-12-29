@@ -18,6 +18,7 @@ pub struct Config {
     pub ckb_rpc: String,
     #[serde(deserialize_with = "bytes_deserialize")]
     pub lightclient_typeargs: Vec<u8>,
+    pub ckb_ibc_client_id: String,
     pub rpc_port: Option<u16>,
     #[serde(
         deserialize_with = "bytes_deserialize",

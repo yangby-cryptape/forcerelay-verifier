@@ -39,6 +39,7 @@ impl Node {
         let execution_rpc = &config.execution_rpc;
         let ckb_rpc = &config.ckb_rpc;
         let typeargs = &config.lightclient_typeargs;
+        let client_id = &config.ckb_ibc_client_id;
 
         let consensus = ConsensusClient::new(consensus_rpc, checkpoint_hash, config.clone())
             .map_err(NodeError::ConsensusClientCreationError)?;
@@ -49,7 +50,7 @@ impl Node {
         let payloads = BTreeMap::new();
         let finalized_payloads = BTreeMap::new();
         let block_number_slots = HashMap::new();
-        let ckb_assembler = ForcerelayAssembler::new(ckb_rpc, typeargs);
+        let ckb_assembler = ForcerelayAssembler::new(ckb_rpc, typeargs, client_id);
 
         Ok(Node {
             consensus,

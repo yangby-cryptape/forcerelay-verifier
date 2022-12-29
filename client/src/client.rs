@@ -26,6 +26,7 @@ pub struct ClientBuilder {
     execution_rpc: Option<String>,
     ckb_rpc: Option<String>,
     lightclient_typeargs: Option<Vec<u8>>,
+    ibc_client_id: Option<String>,
     checkpoint: Option<Vec<u8>>,
     rpc_port: Option<u16>,
     data_dir: Option<PathBuf>,
@@ -63,6 +64,11 @@ impl ClientBuilder {
         let typeargs = hex::decode(typeargs.strip_prefix("0x").unwrap_or(typeargs))
             .expect("cannot parse lightclient");
         self.lightclient_typeargs = Some(typeargs);
+        self
+    }
+
+    pub fn ibc_client_id(mut self, client_id: &str) -> Self {
+        self.ibc_client_id = Some(client_id.to_owned());
         self
     }
 
@@ -141,6 +147,14 @@ impl ClientBuilder {
             vec![0u8; 32]
         };
 
+        let client_id = if let Some(client_id) = self.ibc_client_id {
+            client_id
+        } else if let Some(config) = &self.config {
+            config.ckb_ibc_client_id.clone()
+        } else {
+            String::new()
+        };
+
         let checkpoint = if let Some(checkpoint) = self.checkpoint {
             checkpoint
         } else if let Some(config) = &self.config {
@@ -184,6 +198,7 @@ impl ClientBuilder {
             execution_rpc,
             ckb_rpc,
             lightclient_typeargs,
+            ckb_ibc_client_id: client_id,
             checkpoint,
             rpc_port,
             data_dir,
