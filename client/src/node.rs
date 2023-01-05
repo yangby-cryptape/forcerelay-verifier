@@ -1,4 +1,6 @@
 use ckb_jsonrpc_types::Transaction as CkbTransaction;
+use ethers::utils::keccak256;
+use futures::future::join_all;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
@@ -252,7 +254,11 @@ impl Node {
         self.check_head_age()?;
 
         let payload = self.get_payload(BlockTag::Latest)?;
-        let base_fee = U256::from_little_endian(&payload.base_fee_per_gas.to_bytes_le());
+        let base_fee = {
+            let mut base_fee = [0u8; 32];
+            payload.base_fee_per_gas.to_little_endian(&mut base_fee);
+            U256::from_little_endian(&base_fee)
+        };
         let tip = U256::from(10_u64.pow(9));
         Ok(base_fee + tip)
     }
@@ -310,17 +316,41 @@ impl Node {
             None => return Ok(None),
         };
         let mut slot = 0;
+        let mut eth_receipts = None;
         if let Some(block_number) = eth_transaction.block_number {
             if let Some(eth_slot) = self.block_number_slots.get(&block_number.as_u64()) {
                 slot = *eth_slot;
             }
+            match self.payloads.get(&block_number.as_u64()) {
+                Some(payload) => {
+                    let tx_hashes = payload
+                        .transactions
+                        .iter()
+                        .map(|tx| H256::from_slice(&keccak256(tx.to_vec())))
+                        .collect::<Vec<_>>();
+                    let receipts_fut = tx_hashes.into_iter().map(|hash| async move {
+                        let receipt = self.execution.rpc.get_transaction_receipt(&hash).await;
+                        receipt?.ok_or(eyre::eyre!("not reachable"))
+                    });
+
+                    let receipts = join_all(receipts_fut).await;
+                    eth_receipts = Some(receipts.into_iter().collect::<Result<Vec<_>>>()?);
+                }
+                None => return Ok(None),
+            }
         }
-        if slot > 0 {
+        if slot > 0 && eth_receipts.is_some() {
             let block = self.consensus.rpc.get_block(slot).await?;
             let headers = self.consensus.get_fianlized_headers();
             let ckb_transaction = self
                 .ckb_assembler
-                .assemble_tx(headers, &block, &eth_transaction, &eth_receipt)
+                .assemble_tx(
+                    headers,
+                    &block,
+                    &eth_transaction,
+                    &eth_receipt,
+                    &eth_receipts.unwrap(),
+                )
                 .await?;
             return Ok(Some(ckb_transaction.data().into()));
         }
@@ -363,7 +393,7 @@ impl Node {
         let payloads = self
             .payloads
             .iter()
-            .filter(|entry| &entry.1.block_hash.to_vec() == hash)
+            .filter(|entry| entry.1.block_hash.into_root().as_bytes() == hash)
             .collect::<Vec<(&u64, &ExecutionPayload)>>();
 
         payloads

@@ -11,66 +11,69 @@ pub type Address = Vector<u8, 20>;
 pub type LogsBloom = Vector<u8, 256>;
 pub type Transaction = List<u8, 1073741824>;
 
-#[derive(serde::Deserialize, Debug, Default, SimpleSerialize, Clone)]
-pub struct BeaconBlock {
-    #[serde(deserialize_with = "u64_deserialize")]
-    pub slot: u64,
-    #[serde(deserialize_with = "u64_deserialize")]
-    pub proposer_index: u64,
-    #[serde(deserialize_with = "bytes32_deserialize")]
-    pub parent_root: Bytes32,
-    #[serde(deserialize_with = "bytes32_deserialize")]
-    pub state_root: Bytes32,
-    pub body: BeaconBlockBody,
-}
+pub type BeaconBlock = eth2_types::BeaconBlock<eth2_types::MainnetEthSpec>;
+pub type ExecutionPayload = eth2_types::ExecutionPayload<eth2_types::MainnetEthSpec>;
 
-#[derive(serde::Deserialize, Debug, Default, SimpleSerialize, Clone)]
-pub struct BeaconBlockBody {
-    #[serde(deserialize_with = "signature_deserialize")]
-    randao_reveal: SignatureBytes,
-    eth1_data: Eth1Data,
-    #[serde(deserialize_with = "bytes32_deserialize")]
-    graffiti: Bytes32,
-    proposer_slashings: List<ProposerSlashing, 16>,
-    attester_slashings: List<AttesterSlashing, 2>,
-    attestations: List<Attestation, 128>,
-    deposits: List<Deposit, 16>,
-    voluntary_exits: List<SignedVoluntaryExit, 16>,
-    sync_aggregate: SyncAggregate,
-    pub execution_payload: ExecutionPayload,
-}
+// #[derive(serde::Deserialize, Debug, Default, SimpleSerialize, Clone)]
+// pub struct BeaconBlock {
+//     #[serde(deserialize_with = "u64_deserialize")]
+//     pub slot: u64,
+//     #[serde(deserialize_with = "u64_deserialize")]
+//     pub proposer_index: u64,
+//     #[serde(deserialize_with = "bytes32_deserialize")]
+//     pub parent_root: Bytes32,
+//     #[serde(deserialize_with = "bytes32_deserialize")]
+//     pub state_root: Bytes32,
+//     pub body: BeaconBlockBody,
+// }
 
-#[derive(serde::Deserialize, Debug, Default, SimpleSerialize, Clone)]
-pub struct ExecutionPayload {
-    #[serde(deserialize_with = "bytes32_deserialize")]
-    pub parent_hash: Bytes32,
-    #[serde(deserialize_with = "address_deserialize")]
-    pub fee_recipient: Address,
-    #[serde(deserialize_with = "bytes32_deserialize")]
-    pub state_root: Bytes32,
-    #[serde(deserialize_with = "bytes32_deserialize")]
-    pub receipts_root: Bytes32,
-    #[serde(deserialize_with = "logs_bloom_deserialize")]
-    pub logs_bloom: Vector<u8, 256>,
-    #[serde(deserialize_with = "bytes32_deserialize")]
-    pub prev_randao: Bytes32,
-    #[serde(deserialize_with = "u64_deserialize")]
-    pub block_number: u64,
-    #[serde(deserialize_with = "u64_deserialize")]
-    pub gas_limit: u64,
-    #[serde(deserialize_with = "u64_deserialize")]
-    pub gas_used: u64,
-    #[serde(deserialize_with = "u64_deserialize")]
-    pub timestamp: u64,
-    #[serde(deserialize_with = "extra_data_deserialize")]
-    pub extra_data: List<u8, 32>,
-    #[serde(deserialize_with = "u256_deserialize")]
-    pub base_fee_per_gas: U256,
-    #[serde(deserialize_with = "bytes32_deserialize")]
-    pub block_hash: Bytes32,
-    #[serde(deserialize_with = "transactions_deserialize")]
-    pub transactions: List<Transaction, 1048576>,
-}
+// #[derive(serde::Deserialize, Debug, Default, SimpleSerialize, Clone)]
+// pub struct BeaconBlockBody {
+//     #[serde(deserialize_with = "signature_deserialize")]
+//     randao_reveal: SignatureBytes,
+//     eth1_data: Eth1Data,
+//     #[serde(deserialize_with = "bytes32_deserialize")]
+//     graffiti: Bytes32,
+//     proposer_slashings: List<ProposerSlashing, 16>,
+//     attester_slashings: List<AttesterSlashing, 2>,
+//     attestations: List<Attestation, 128>,
+//     deposits: List<Deposit, 16>,
+//     voluntary_exits: List<SignedVoluntaryExit, 16>,
+//     sync_aggregate: SyncAggregate,
+//     pub execution_payload: ExecutionPayload,
+// }
+
+// #[derive(serde::Deserialize, Debug, Default, SimpleSerialize, Clone)]
+// pub struct ExecutionPayload {
+//     #[serde(deserialize_with = "bytes32_deserialize")]
+//     pub parent_hash: Bytes32,
+//     #[serde(deserialize_with = "address_deserialize")]
+//     pub fee_recipient: Address,
+//     #[serde(deserialize_with = "bytes32_deserialize")]
+//     pub state_root: Bytes32,
+//     #[serde(deserialize_with = "bytes32_deserialize")]
+//     pub receipts_root: Bytes32,
+//     #[serde(deserialize_with = "logs_bloom_deserialize")]
+//     pub logs_bloom: Vector<u8, 256>,
+//     #[serde(deserialize_with = "bytes32_deserialize")]
+//     pub prev_randao: Bytes32,
+//     #[serde(deserialize_with = "u64_deserialize")]
+//     pub block_number: u64,
+//     #[serde(deserialize_with = "u64_deserialize")]
+//     pub gas_limit: u64,
+//     #[serde(deserialize_with = "u64_deserialize")]
+//     pub gas_used: u64,
+//     #[serde(deserialize_with = "u64_deserialize")]
+//     pub timestamp: u64,
+//     #[serde(deserialize_with = "extra_data_deserialize")]
+//     pub extra_data: List<u8, 32>,
+//     #[serde(deserialize_with = "u256_deserialize")]
+//     pub base_fee_per_gas: U256,
+//     #[serde(deserialize_with = "bytes32_deserialize")]
+//     pub block_hash: Bytes32,
+//     #[serde(deserialize_with = "transactions_deserialize")]
+//     pub transactions: List<Transaction, 1048576>,
+// }
 
 #[derive(serde::Deserialize, Debug, Default, SimpleSerialize, Clone)]
 struct ProposerSlashing {
@@ -378,16 +381,16 @@ where
     Ok(val.parse().unwrap())
 }
 
-fn u256_deserialize<'de, D>(deserializer: D) -> Result<U256, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let val: String = serde::Deserialize::deserialize(deserializer)?;
-    let x = ethers::types::U256::from_dec_str(&val).map_err(D::Error::custom)?;
-    let mut x_bytes = [0; 32];
-    x.to_little_endian(&mut x_bytes);
-    Ok(U256::from_bytes_le(x_bytes))
-}
+// fn u256_deserialize<'de, D>(deserializer: D) -> Result<U256, D::Error>
+// where
+//     D: serde::Deserializer<'de>,
+// {
+//     let val: String = serde::Deserialize::deserialize(deserializer)?;
+//     let x = ethers::types::U256::from_dec_str(&val).map_err(D::Error::custom)?;
+//     let mut x_bytes = [0; 32];
+//     x.to_little_endian(&mut x_bytes);
+//     Ok(U256::from_bytes_le(x_bytes))
+// }
 
 fn bytes32_deserialize<'de, D>(deserializer: D) -> Result<Bytes32, D::Error>
 where
@@ -398,48 +401,48 @@ where
     Ok(bytes.to_vec().try_into().unwrap())
 }
 
-fn logs_bloom_deserialize<'de, D>(deserializer: D) -> Result<LogsBloom, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let bytes: String = serde::Deserialize::deserialize(deserializer)?;
-    let bytes = hex::decode(bytes.strip_prefix("0x").unwrap()).unwrap();
-    Ok(bytes.to_vec().try_into().unwrap())
-}
+// fn logs_bloom_deserialize<'de, D>(deserializer: D) -> Result<LogsBloom, D::Error>
+// where
+//     D: serde::Deserializer<'de>,
+// {
+//     let bytes: String = serde::Deserialize::deserialize(deserializer)?;
+//     let bytes = hex::decode(bytes.strip_prefix("0x").unwrap()).unwrap();
+//     Ok(bytes.to_vec().try_into().unwrap())
+// }
 
-fn address_deserialize<'de, D>(deserializer: D) -> Result<Address, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let bytes: String = serde::Deserialize::deserialize(deserializer)?;
-    let bytes = hex::decode(bytes.strip_prefix("0x").unwrap()).unwrap();
-    Ok(bytes.to_vec().try_into().unwrap())
-}
+// fn address_deserialize<'de, D>(deserializer: D) -> Result<Address, D::Error>
+// where
+//     D: serde::Deserializer<'de>,
+// {
+//     let bytes: String = serde::Deserialize::deserialize(deserializer)?;
+//     let bytes = hex::decode(bytes.strip_prefix("0x").unwrap()).unwrap();
+//     Ok(bytes.to_vec().try_into().unwrap())
+// }
 
-fn extra_data_deserialize<'de, D>(deserializer: D) -> Result<List<u8, 32>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let bytes: String = serde::Deserialize::deserialize(deserializer)?;
-    let bytes = hex::decode(bytes.strip_prefix("0x").unwrap()).unwrap();
-    Ok(bytes.to_vec().try_into().unwrap())
-}
+// fn extra_data_deserialize<'de, D>(deserializer: D) -> Result<List<u8, 32>, D::Error>
+// where
+//     D: serde::Deserializer<'de>,
+// {
+//     let bytes: String = serde::Deserialize::deserialize(deserializer)?;
+//     let bytes = hex::decode(bytes.strip_prefix("0x").unwrap()).unwrap();
+//     Ok(bytes.to_vec().try_into().unwrap())
+// }
 
-fn transactions_deserialize<'de, D>(deserializer: D) -> Result<List<Transaction, 1048576>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let transactions: Vec<String> = serde::Deserialize::deserialize(deserializer)?;
-    let transactions = transactions
-        .iter()
-        .map(|tx| {
-            let tx = hex_str_to_bytes(tx).unwrap();
-            let tx: Transaction = List::from_iter(tx);
-            tx
-        })
-        .collect::<List<Transaction, 1048576>>();
-    Ok(transactions)
-}
+// fn transactions_deserialize<'de, D>(deserializer: D) -> Result<List<Transaction, 1048576>, D::Error>
+// where
+//     D: serde::Deserializer<'de>,
+// {
+//     let transactions: Vec<String> = serde::Deserialize::deserialize(deserializer)?;
+//     let transactions = transactions
+//         .iter()
+//         .map(|tx| {
+//             let tx = hex_str_to_bytes(tx).unwrap();
+//             let tx: Transaction = List::from_iter(tx);
+//             tx
+//         })
+//         .collect::<List<Transaction, 1048576>>();
+//     Ok(transactions)
+// }
 
 fn attesting_indices_deserialize<'de, D>(deserializer: D) -> Result<List<u64, 2048>, D::Error>
 where

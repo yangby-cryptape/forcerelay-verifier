@@ -21,3 +21,7 @@ ethers = "1.0.2"
 jsonrpc-core = "18"
 
 consensus = { path = "../consensus" }
+eth2_types = { git = "https://github.com/yangby-cryptape/lighthouse", rev = "62dc610", package = "types" }
+tree_hash = { version = "0.4.1", git = "https://github.com/yangby-cryptape/lighthouse", rev = "62dc610" }
+eth_light_client_in_ckb-verification = { git = "https://github.com/yangby-cryptape/eth-light-client-in-ckb", branch = "master"}
+eth_light_client_in_ckb-prover = { git = "https://github.com/yangby-cryptape/eth-light-client-in-ckb", branch = "master"}

@@ -25,3 +25,5 @@ reqwest-retry = "0.1.5"
 
 common = { path = "../common" }
 config = { path = "../config" }
+eth2_types = { git = "https://github.com/yangby-cryptape/lighthouse", rev = "62dc610", package = "types" }
+tree_hash = { version = "0.4.1", git = "https://github.com/yangby-cryptape/lighthouse", rev = "62dc610" }

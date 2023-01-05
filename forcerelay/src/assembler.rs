@@ -1,15 +1,16 @@
 use ckb_sdk::constants::TYPE_ID_CODE_HASH;
-use ckb_sdk::rpc::ckb_indexer::{Cell as IndexerCell, SearchKey};
-use ckb_sdk::traits::{CellQueryOptions, PrimaryScriptType};
 use ckb_types::core::{ScriptHashType, TransactionView};
 use ckb_types::packed::Script;
 use ckb_types::prelude::*;
 use consensus::types::{BeaconBlock, Header};
+use eth2_types::MainnetEthSpec;
+use eth_light_client_in_ckb_prover::{CachedBeaconBlock, Receipts};
 use ethers::types::{Transaction, TransactionReceipt};
 use eyre::Result;
 use reqwest::Url;
 
 use crate::rpc::RpcClient;
+use crate::util::*;
 
 pub struct ForcerelayAssembler {
     ckb_rpc: RpcClient,
@@ -45,17 +46,21 @@ impl ForcerelayAssembler {
         block: &BeaconBlock,
         tx: &Transaction,
         receipt: &TransactionReceipt,
+        all_receipts: &Vec<TransactionReceipt>,
     ) -> Result<TransactionView> {
         let celldep_contract_cell =
             search_cell(&self.ckb_rpc, &self.contract_typeid_script).await?;
         let lightclient_cell = search_cell(&self.ckb_rpc, &self.lightclient_typescript).await?;
+        if lightclient_cell.is_none() {
+            return Err(eyre::eyre!("LightClient not found"));
+        }
+        let headers = headers
+            .iter()
+            .map(header_helios_to_lighthouse)
+            .collect::<Vec<_>>();
+        let block: CachedBeaconBlock<MainnetEthSpec> = block.clone().into();
+        let receipts: Receipts = all_receipts.clone().into();
+        verify_transaction_raw_data(&headers, &block, tx, receipt, &receipts)?;
         todo!()
     }
-}
-
-async fn search_cell(rpc: &RpcClient, typescript: &Script) -> Result<Option<IndexerCell>> {
-    let search: SearchKey =
-        CellQueryOptions::new(typescript.clone(), PrimaryScriptType::Type).into();
-    let result = rpc.fetch_live_cells(search, 1, None).await?;
-    Ok(result.objects.first().cloned())
 }

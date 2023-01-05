@@ -8,6 +8,7 @@ use eyre::eyre;
 use eyre::Result;
 use log::{debug, info};
 use ssz_rs::prelude::*;
+use tree_hash::TreeHash;
 
 use common::types::*;
 use common::utils::*;
@@ -61,8 +62,8 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
 
     pub async fn get_execution_payload(&self, slot: &Option<u64>) -> Result<ExecutionPayload> {
         let slot = slot.unwrap_or(self.store.optimistic_header.slot);
-        let mut block = self.rpc.get_block(slot).await?;
-        let block_hash = block.hash_tree_root()?;
+        let block = self.rpc.get_block(slot).await?;
+        let block_hash = block.tree_hash_root();
 
         let latest_slot = self.store.optimistic_header.slot;
         let finalized_slot = self.store.finalized_header.slot;
@@ -75,14 +76,18 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             return Err(ConsensusError::PayloadNotFound(slot).into());
         };
 
-        if verified_block_hash != block_hash {
+        if verified_block_hash.as_bytes() != block_hash.as_bytes() {
             Err(ConsensusError::InvalidHeaderHash(
                 block_hash.to_string(),
                 verified_block_hash.to_string(),
             )
             .into())
         } else {
-            Ok(block.body.execution_payload)
+            let payload = match block.body().execution_payload() {
+                Ok(payload) => payload.execution_payload.clone(),
+                Err(err) => return Err(eyre!(format!("invalid execution_payload: {:?}", err))),
+            };
+            Ok(payload)
         }
     }
 

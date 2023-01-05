@@ -137,7 +137,7 @@ impl<'a, R: ExecutionRpc> Evm<'a, R> {
         };
 
         let producer_account = AccessListItem {
-            address: Address::from_slice(&payload.fee_recipient),
+            address: Address::from_slice(payload.fee_recipient.as_bytes()),
             storage_keys: Vec::default(),
         };
 
@@ -181,9 +181,9 @@ impl<'a, R: ExecutionRpc> Evm<'a, R> {
         env.tx.gas_price = opts.gas_price.unwrap_or(U256::zero());
 
         env.block.number = U256::from(payload.block_number);
-        env.block.coinbase = Address::from_slice(&payload.fee_recipient);
+        env.block.coinbase = Address::from_slice(payload.fee_recipient.as_bytes());
         env.block.timestamp = U256::from(payload.timestamp);
-        env.block.difficulty = U256::from_little_endian(&payload.prev_randao);
+        env.block.difficulty = U256::from_little_endian(payload.prev_randao.as_bytes());
 
         env.cfg.chain_id = self.chain_id.into();
 
@@ -265,7 +265,7 @@ impl<'a, R: ExecutionRpc> Database for ProofDB<'a, R> {
             .payloads
             .get(&number)
             .ok_or(BlockNotFoundError::new(BlockTag::Number(number)))?;
-        Ok(H256::from_slice(&payload.block_hash))
+        Ok(H256::from_slice(payload.block_hash.into_root().as_bytes()))
     }
 
     fn storage(&mut self, address: H160, slot: U256) -> Result<U256, Report> {
