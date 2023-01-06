@@ -1,6 +1,7 @@
-use ckb_sdk::rpc::ckb_indexer::{Cell as IndexerCell, SearchKey};
-use ckb_sdk::traits::{CellQueryOptions, PrimaryScriptType};
-use ckb_types::packed::Script;
+use ckb_sdk::rpc::ckb_indexer::SearchKey;
+use ckb_sdk::traits::{CellQueryOptions, LiveCell, PrimaryScriptType};
+use ckb_types::core::{DepType, TransactionView};
+use ckb_types::packed::{CellDep, Script};
 use consensus::types::Header;
 use eth2_types::{BeaconBlockHeader, Hash256, MainnetEthSpec};
 use eth_light_client_in_ckb_prover::{CachedBeaconBlock, Receipts};
@@ -12,11 +13,29 @@ use tree_hash::TreeHash;
 
 use crate::rpc::RpcClient;
 
-pub async fn search_cell(rpc: &RpcClient, typescript: &Script) -> Result<Option<IndexerCell>> {
+pub async fn search_cell(rpc: &RpcClient, typescript: &Script) -> Result<Option<LiveCell>> {
     let search: SearchKey =
         CellQueryOptions::new(typescript.clone(), PrimaryScriptType::Type).into();
     let result = rpc.fetch_live_cells(search, 1, None).await?;
-    Ok(result.objects.first().cloned())
+    Ok(result.objects.first().cloned().map(Into::into))
+}
+
+pub async fn search_cell_as_celldep(
+    rpc: &RpcClient,
+    typescript: &Script,
+) -> Result<Option<CellDep>> {
+    let cell = {
+        let cell_opt = search_cell(rpc, typescript).await?;
+        if cell_opt.is_none() {
+            return Ok(None);
+        }
+        cell_opt.unwrap()
+    };
+    let celldep = CellDep::new_builder()
+        .out_point(cell.out_point)
+        .dep_type(DepType::Code.into())
+        .build();
+    Ok(Some(celldep))
 }
 
 pub fn header_helios_to_lighthouse(header: &Header) -> BeaconBlockHeader {
@@ -118,4 +137,16 @@ pub fn verify_transaction_raw_data(
         .verify_packed_payload(payload.pack().as_reader())
         .map_err(|_| eyre::eyre!("verify proof payload"))?;
     Ok(())
+}
+
+pub fn assemble_partial_verification_transaction(
+    headers: &[BeaconBlockHeader],
+    block: &CachedBeaconBlock<MainnetEthSpec>,
+    tx: &Transaction,
+    receipt: &TransactionReceipt,
+    receipts: &Receipts,
+    contract_celldep: &CellDep,
+) -> Result<TransactionView> {
+    // write verification transaction here
+    todo!()
 }
