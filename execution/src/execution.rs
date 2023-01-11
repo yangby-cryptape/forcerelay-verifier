@@ -130,7 +130,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
         let tx_hashes = payload
             .transactions
             .iter()
-            .map(|tx| H256::from_slice(&keccak256(tx.to_vec())))
+            .map(|tx| keccak256(&**tx).into())
             .collect::<Vec<H256>>();
 
         let txs = if full_tx {
@@ -188,14 +188,17 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
         payload: &ExecutionPayload,
         index: usize,
     ) -> Result<Option<Transaction>> {
-        let tx = payload.transactions[index].clone();
-        let tx_hash = H256::from_slice(&keccak256(tx));
-        let mut payloads = BTreeMap::new();
-        payloads.insert(payload.block_number, payload.clone());
-        let tx_option = self.get_transaction(&tx_hash, &payloads).await?;
-        let tx = tx_option.ok_or(eyre::eyre!("not reachable"))?;
+        if let Some(tx) = payload.transactions.get(index) {
+            let tx_hash = keccak256(&**tx).into();
+            let mut payloads = BTreeMap::new();
+            payloads.insert(payload.block_number, payload.clone());
+            let tx_option = self.get_transaction(&tx_hash, &payloads).await?;
+            let tx = tx_option.ok_or(eyre::eyre!("not reachable"))?;
 
-        Ok(Some(tx))
+            Ok(Some(tx))
+        } else {
+            return Err(eyre::eyre!("index out of payload.transactions bound"));
+        }
     }
 
     pub async fn get_transaction_receipt(
@@ -220,7 +223,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
         let tx_hashes = payload
             .transactions
             .iter()
-            .map(|tx| H256::from_slice(&keccak256(tx.to_vec())))
+            .map(|tx| keccak256(&**tx).into())
             .collect::<Vec<H256>>();
 
         let receipts_fut = tx_hashes.iter().map(|hash| async move {
