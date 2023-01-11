@@ -131,7 +131,7 @@ impl Node {
         }
 
         // only save one finalized block per epoch
-        // finality updates only occur on epoch boundries
+        // finality updates only occur on epoch boundaries
         while self.finalized_payloads.len() > usize::max(self.history_size / 32, 1) {
             self.finalized_payloads.pop_first();
         }
@@ -242,6 +242,18 @@ impl Node {
     pub async fn get_transaction_by_hash(&self, tx_hash: &H256) -> Result<Option<Transaction>> {
         self.execution
             .get_transaction(tx_hash, &self.payloads)
+            .await
+    }
+
+    pub async fn get_transaction_by_block_hash_and_index(
+        &self,
+        hash: &Vec<u8>,
+        index: usize,
+    ) -> Result<Option<Transaction>> {
+        let payload = self.get_payload_by_hash(hash)?;
+
+        self.execution
+            .get_transaction_by_block_hash_and_index(payload.1, index)
             .await
     }
 

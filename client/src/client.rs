@@ -257,7 +257,7 @@ impl<DB: Database> Client<DB> {
             if fallback.is_err() && self.load_external_fallback {
                 self.boot_from_external_fallbacks().await?
             } else if fallback.is_err() {
-                return Err(eyre::eyre!("Checkpoint is too old. Please update your checkpoint. Alternatively, set an explicit checkpoint fallback service url with the `-f` flag or use the configured external fallback services with `-l` (NOT RECOMMENED). See https://github.com/a16z/helios#additional-options for more information."));
+                return Err(eyre::eyre!("Checkpoint is too old. Please update your checkpoint. Alternatively, set an explicit checkpoint fallback service url with the `-f` flag or use the configured external fallback services with `-l` (NOT RECOMMENDED). See https://github.com/a16z/helios#additional-options for more information."));
             }
         }
 
@@ -478,6 +478,18 @@ impl<DB: Database> Client<DB> {
             .read()
             .await
             .get_block_by_hash(hash, full_tx)
+            .await
+    }
+
+    pub async fn get_transaction_by_block_hash_and_index(
+        &self,
+        block_hash: &Vec<u8>,
+        index: usize,
+    ) -> Result<Option<Transaction>> {
+        self.node
+            .read()
+            .await
+            .get_transaction_by_block_hash_and_index(block_hash, index)
             .await
     }
 
