@@ -82,14 +82,13 @@ impl ForcerelayAssembler {
             .collect::<Vec<_>>();
         let block: CachedBeaconBlock<MainnetEthSpec> = block.clone().into();
         let receipts: Receipts = all_receipts.clone().into();
-        verify_transaction_raw_data(&headers, &block, tx, receipt, &receipts)?;
-        Ok(assemble_partial_verification_transaction(
+        assemble_partial_verification_transaction(
             &headers,
             &block,
             tx,
             receipt,
             &receipts,
             &contract_celldep,
-        )?)
+        )
     }
 }
