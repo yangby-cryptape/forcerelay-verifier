@@ -1,7 +1,8 @@
 use ckb_sdk::rpc::ckb_indexer::SearchKey;
 use ckb_sdk::traits::{CellQueryOptions, LiveCell, PrimaryScriptType};
 use ckb_types::core::{DepType, TransactionView};
-use ckb_types::packed::{CellDep, Script};
+use ckb_types::packed::{BytesOpt, CellDep, Script, WitnessArgs};
+use ckb_types::prelude::Pack as _;
 use consensus::types::Header;
 use eth2_types::{BeaconBlockHeader, Hash256, MainnetEthSpec};
 use eth_light_client_in_ckb_prover::{CachedBeaconBlock, Receipts};
@@ -62,13 +63,14 @@ pub fn find_receipt_index(receipt: &TransactionReceipt, receipts: &Receipts) -> 
     return index as u64;
 }
 
-pub fn verify_transaction_raw_data(
+pub fn assemble_partial_verification_transaction(
     headers: &[BeaconBlockHeader],
     block: &CachedBeaconBlock<MainnetEthSpec>,
     tx: &Transaction,
     receipt: &TransactionReceipt,
     receipts: &Receipts,
-) -> Result<()> {
+    contract_celldep: &CellDep,
+) -> Result<TransactionView> {
     let store = mmr::lib::util::MemStore::default();
     let mmr = {
         let mut mmr = mmr::ClientRootMMR::new(0, &store);
@@ -79,6 +81,7 @@ pub fn verify_transaction_raw_data(
         mmr
     };
     let last_header = &headers[headers.len() - 1];
+    // TODO should use the client from CKB chain to do checks.
     let client = core::Client {
         minimal_slot: headers[0].slot.into(),
         maximal_slot: last_header.slot.into(),
@@ -119,8 +122,9 @@ pub fn verify_transaction_raw_data(
         receipt_mpt_proof,
         receipts_root_ssz_proof,
     };
+    let packed_proof: packed::TransactionProof = proof.pack();
     client
-        .verify_packed_transaction_proof(proof.pack().as_reader())
+        .verify_packed_transaction_proof(packed_proof.as_reader())
         .map_err(|_| eyre::eyre!("verify proof error"))?;
     let beacon_tx = block
         .transaction(transaction_index as usize)
@@ -129,24 +133,30 @@ pub fn verify_transaction_raw_data(
     if beacon_tx != tx.rlp().to_vec() {
         return Err(eyre::eyre!("execution and beacon tx is different"));
     }
-    let payload = core::TransactionPayload {
+    let packed_payload: packed::TransactionPayload = core::TransactionPayload {
         transaction: beacon_tx,
         receipt: receipts.encode_data(transaction_index as usize),
-    };
+    }
+    .pack();
     proof
-        .verify_packed_payload(payload.pack().as_reader())
+        .verify_packed_payload(packed_payload.as_reader())
         .map_err(|_| eyre::eyre!("verify proof payload"))?;
-    Ok(())
-}
-
-pub fn assemble_partial_verification_transaction(
-    headers: &[BeaconBlockHeader],
-    block: &CachedBeaconBlock<MainnetEthSpec>,
-    tx: &Transaction,
-    receipt: &TransactionReceipt,
-    receipts: &Receipts,
-    contract_celldep: &CellDep,
-) -> Result<TransactionView> {
-    // write verification transaction here
-    todo!()
+    let witness = {
+        let input_type_args = BytesOpt::new_builder()
+            .set(Some(packed_proof.as_slice().pack()))
+            .build();
+        let output_type_args = BytesOpt::new_builder()
+            .set(Some(packed_payload.as_slice().pack()))
+            .build();
+        let witness_args = WitnessArgs::new_builder()
+            .input_type(input_type_args)
+            .output_type(output_type_args)
+            .build();
+        witness_args.as_bytes()
+    };
+    let tx = TransactionView::new_advanced_builder()
+        .cell_dep(contract_celldep.to_owned())
+        .witness(witness.pack())
+        .build();
+    Ok(tx)
 }
