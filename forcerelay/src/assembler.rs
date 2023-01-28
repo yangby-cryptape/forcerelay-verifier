@@ -1,6 +1,7 @@
 use ckb_sdk::constants::TYPE_ID_CODE_HASH;
+use ckb_sdk::traits::LiveCell;
 use ckb_types::core::{ScriptHashType, TransactionView};
-use ckb_types::packed::Script;
+use ckb_types::packed::{CellDep, Script};
 use ckb_types::prelude::*;
 use consensus::types::{BeaconBlock, Header};
 use eth2_types::MainnetEthSpec;
@@ -8,36 +9,58 @@ use eth_light_client_in_ckb_prover::{CachedBeaconBlock, Receipts};
 use eth_light_client_in_ckb_verification::types::{packed, prelude::Unpack};
 use ethers::types::{Transaction, TransactionReceipt};
 use eyre::Result;
-use reqwest::Url;
 
 use crate::rpc::RpcClient;
 use crate::util::*;
 
 pub struct ForcerelayAssembler {
-    ckb_rpc: RpcClient,
+    rpc: RpcClient,
     contract_typeid_script: Script,
+    binary_typeid_script: Script,
     lightclient_typescript: Script,
 }
 
 impl ForcerelayAssembler {
-    pub fn new(ckb_url: &str, lightclient_typeargs: &Vec<u8>, client_id: &String) -> Self {
-        let typeid_script = Script::new_builder()
+    pub fn new(
+        rpc: RpcClient,
+        contract_typeargs: &Vec<u8>,
+        binary_typeargs: &Vec<u8>,
+        client_id: &String,
+    ) -> Self {
+        let contract_typeid_script = Script::new_builder()
             .code_hash(TYPE_ID_CODE_HASH.0.pack())
-            .args(lightclient_typeargs.pack())
+            .args(contract_typeargs.pack())
             .hash_type(ScriptHashType::Type.into())
             .build();
-        let typeid = typeid_script.calc_script_hash();
-        let typescript = Script::new_builder()
-            .code_hash(typeid)
+        let binary_typeid_script = Script::new_builder()
+            .code_hash(TYPE_ID_CODE_HASH.0.pack())
+            .args(binary_typeargs.pack())
+            .hash_type(ScriptHashType::Type.into())
+            .build();
+        let contract_typeid = contract_typeid_script.calc_script_hash();
+        let lightclient_typescript = Script::new_builder()
+            .code_hash(contract_typeid)
             .args(client_id.as_bytes().to_vec().pack())
             .hash_type(ScriptHashType::Type.into())
             .build();
-        let url = Url::parse(ckb_url).expect("parse ckb url");
-        let rpc = RpcClient::new(&url, &url);
         Self {
-            ckb_rpc: rpc,
-            contract_typeid_script: typeid_script,
-            lightclient_typescript: typescript,
+            rpc,
+            contract_typeid_script,
+            binary_typeid_script,
+            lightclient_typescript,
+        }
+    }
+
+    pub async fn fetch_onchain_packed_client(&self) -> Result<Option<packed::Client>> {
+        match search_cell(&self.rpc, &self.lightclient_typescript).await? {
+            Some(cell) => {
+                if packed::ClientReader::verify(&cell.output_data, false).is_err() {
+                    return Err(eyre::eyre!("unsupported lightlient data"));
+                }
+                let packed_client = packed::Client::new_unchecked(cell.output_data);
+                Ok(Some(packed_client))
+            }
+            None => Ok(None),
         }
     }
 
@@ -47,26 +70,18 @@ impl ForcerelayAssembler {
         block: &BeaconBlock,
         tx: &Transaction,
         receipt: &TransactionReceipt,
-        all_receipts: &Vec<TransactionReceipt>,
+        all_receipts: &[TransactionReceipt],
     ) -> Result<TransactionView> {
         if headers.is_empty() {
             return Err(eyre::eyre!("empty headers"));
         }
-        let contract_celldep = {
-            let celldep_opt =
-                search_cell_as_celldep(&self.ckb_rpc, &self.contract_typeid_script).await?;
-            if celldep_opt.is_none() {
-                return Err(eyre::eyre!("lightClient contract not found"));
-            }
-            celldep_opt.unwrap()
-        };
-        let lightclient_cell = {
-            let cell_opt = search_cell(&self.ckb_rpc, &self.lightclient_typescript).await?;
-            if cell_opt.is_none() {
-                return Err(eyre::eyre!("lightClient not found"));
-            }
-            cell_opt.unwrap()
-        };
+        let (contract_celldep, binary_celldep, lightclient_cell) = prepare_onchain_data(
+            &self.rpc,
+            &self.contract_typeid_script,
+            &self.binary_typeid_script,
+            &self.lightclient_typescript,
+        )
+        .await?;
         if packed::ClientReader::verify(&lightclient_cell.output_data, false).is_err() {
             return Err(eyre::eyre!("unsupported lightlient data"));
         }
@@ -81,14 +96,44 @@ impl ForcerelayAssembler {
             .map(header_helios_to_lighthouse)
             .collect::<Vec<_>>();
         let block: CachedBeaconBlock<MainnetEthSpec> = block.clone().into();
-        let receipts: Receipts = all_receipts.clone().into();
+        let receipts: Receipts = all_receipts.to_owned().into();
         assemble_partial_verification_transaction(
             &headers,
             &block,
             tx,
             receipt,
             &receipts,
-            &contract_celldep,
+            &[contract_celldep, binary_celldep],
         )
     }
+}
+
+async fn prepare_onchain_data(
+    rpc: &RpcClient,
+    contract_script: &Script,
+    binary_script: &Script,
+    lightclient_script: &Script,
+) -> Result<(CellDep, CellDep, LiveCell)> {
+    let contract_celldep = {
+        let celldep_opt = search_cell_as_celldep(rpc, contract_script).await?;
+        if celldep_opt.is_none() {
+            return Err(eyre::eyre!("lightClient contract not found"));
+        }
+        celldep_opt.unwrap()
+    };
+    let binary_celldep = {
+        let celldep_opt = search_cell_as_celldep(rpc, binary_script).await?;
+        if celldep_opt.is_none() {
+            return Err(eyre::eyre!("lightClient binary not found"));
+        }
+        celldep_opt.unwrap()
+    };
+    let lightclient_cell = {
+        let cell_opt = search_cell(rpc, lightclient_script).await?;
+        if cell_opt.is_none() {
+            return Err(eyre::eyre!("lightClient cell not found"));
+        }
+        cell_opt.unwrap()
+    };
+    Ok((contract_celldep, binary_celldep, lightclient_cell))
 }

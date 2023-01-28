@@ -3,8 +3,8 @@ use std::{fs::read_to_string, path::PathBuf};
 use async_trait::async_trait;
 use eyre::Result;
 
-use super::ConsensusRpc;
-use crate::types::{BeaconBlock, Bootstrap, FinalityUpdate, OptimisticUpdate, Update};
+use super::{ConsensusRpc, HeaderResponse};
+use crate::types::{BeaconBlock, Bootstrap, FinalityUpdate, Header, OptimisticUpdate, Update};
 
 pub struct MockRpc {
     testdata: PathBuf,
@@ -41,5 +41,11 @@ impl ConsensusRpc for MockRpc {
     async fn get_block(&self, _slot: u64) -> Result<BeaconBlock> {
         let block = read_to_string(self.testdata.join("blocks.json"))?;
         Ok(serde_json::from_str(&block)?)
+    }
+
+    async fn get_header(&self, _slot: u64) -> Result<Header> {
+        let header = read_to_string(self.testdata.join("header.json"))?;
+        let response: HeaderResponse::Response = serde_json::from_str(&header)?;
+        Ok(response.data.header.message)
     }
 }

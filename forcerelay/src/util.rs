@@ -60,7 +60,7 @@ pub fn find_receipt_index(receipt: &TransactionReceipt, receipts: &Receipts) -> 
                 index = i;
             }
         });
-    return index as u64;
+    index as u64
 }
 
 pub fn assemble_partial_verification_transaction(
@@ -69,7 +69,7 @@ pub fn assemble_partial_verification_transaction(
     tx: &Transaction,
     receipt: &TransactionReceipt,
     receipts: &Receipts,
-    contract_celldep: &CellDep,
+    celldeps: &[CellDep],
 ) -> Result<TransactionView> {
     let store = mmr::lib::util::MemStore::default();
     let mmr = {
@@ -105,7 +105,7 @@ pub fn assemble_partial_verification_transaction(
         .gen_proof(vec![mmr_position.into()])
         .expect("gen mmr proof")
         .proof_items()
-        .into_iter()
+        .iter()
         .map(Unpack::unpack)
         .collect();
     let transaction_index = find_receipt_index(receipt, receipts);
@@ -155,7 +155,7 @@ pub fn assemble_partial_verification_transaction(
         witness_args.as_bytes()
     };
     let tx = TransactionView::new_advanced_builder()
-        .cell_dep(contract_celldep.to_owned())
+        .cell_deps(celldeps.to_owned())
         .witness(witness.pack())
         .build();
     Ok(tx)

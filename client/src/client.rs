@@ -25,7 +25,9 @@ pub struct ClientBuilder {
     consensus_rpc: Option<String>,
     execution_rpc: Option<String>,
     ckb_rpc: Option<String>,
-    lightclient_typeargs: Option<Vec<u8>>,
+    ckb_mmr_storage_path: Option<String>,
+    lightclient_contract_typeargs: Option<Vec<u8>>,
+    lightclient_binary_typeargs: Option<Vec<u8>>,
     ibc_client_id: Option<String>,
     checkpoint: Option<Vec<u8>>,
     rpc_port: Option<u16>,
@@ -60,10 +62,22 @@ impl ClientBuilder {
         self
     }
 
-    pub fn lightclient_typeargs(mut self, typeargs: &str) -> Self {
+    pub fn ckb_mmr_storage_path(mut self, storage_path: &str) -> Self {
+        self.ckb_mmr_storage_path = Some(storage_path.to_owned());
+        self
+    }
+
+    pub fn lightclient_contract_typeargs(mut self, typeargs: &str) -> Self {
         let typeargs = hex::decode(typeargs.strip_prefix("0x").unwrap_or(typeargs))
             .expect("cannot parse lightclient");
-        self.lightclient_typeargs = Some(typeargs);
+        self.lightclient_contract_typeargs = Some(typeargs);
+        self
+    }
+
+    pub fn lightclient_binary_typeargs(mut self, typeargs: &str) -> Self {
+        let typeargs = hex::decode(typeargs.strip_prefix("0x").unwrap_or(typeargs))
+            .expect("cannot parse lightclient");
+        self.lightclient_binary_typeargs = Some(typeargs);
         self
     }
 
@@ -139,10 +153,27 @@ impl ClientBuilder {
                 .clone()
         });
 
-        let lightclient_typeargs = if let Some(typeargs) = self.lightclient_typeargs {
+        let ckb_mmr_storage_path = self.ckb_mmr_storage_path.unwrap_or_else(|| {
+            self.config
+                .as_ref()
+                .expect("missing ckb mmr storage path")
+                .ckb_mmr_storage_path
+                .clone()
+        });
+
+        let lightclient_contract_typeargs =
+            if let Some(typeargs) = self.lightclient_contract_typeargs {
+                typeargs
+            } else if let Some(config) = &self.config {
+                config.lightclient_contract_typeargs.clone()
+            } else {
+                vec![0u8; 32]
+            };
+
+        let lightclient_binary_typeargs = if let Some(typeargs) = self.lightclient_binary_typeargs {
             typeargs
         } else if let Some(config) = &self.config {
-            config.lightclient_typeargs.clone()
+            config.lightclient_binary_typeargs.clone()
         } else {
             vec![0u8; 32]
         };
@@ -197,7 +228,9 @@ impl ClientBuilder {
             consensus_rpc,
             execution_rpc,
             ckb_rpc,
-            lightclient_typeargs,
+            ckb_mmr_storage_path,
+            lightclient_contract_typeargs,
+            lightclient_binary_typeargs,
             ckb_ibc_client_id: client_id,
             checkpoint,
             rpc_port,

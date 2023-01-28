@@ -197,7 +197,7 @@ pub struct Bootstrap {
     pub current_sync_committee_branch: Vec<Bytes32>,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, Debug, Clone, Default)]
 pub struct Update {
     pub attested_header: Header,
     pub next_sync_committee: SyncCommittee,
@@ -211,7 +211,41 @@ pub struct Update {
     pub signature_slot: u64,
 }
 
-#[derive(serde::Deserialize, Debug)]
+impl Update {
+    pub fn from_finality_update(
+        update: FinalityUpdate,
+        next_sync_committee: SyncCommittee,
+        next_sync_committee_branch: Vec<Bytes32>,
+    ) -> Self {
+        Self {
+            attested_header: update.attested_header,
+            finalized_header: update.finalized_header,
+            finality_branch: update.finality_branch,
+            sync_aggregate: update.sync_aggregate,
+            signature_slot: update.signature_slot,
+            next_sync_committee,
+            next_sync_committee_branch,
+        }
+    }
+
+    pub fn from_finalized_header(header: Header) -> Self {
+        Self {
+            finalized_header: header,
+            ..Default::default()
+        }
+    }
+
+    pub fn is_finalized_empty(&self) -> bool {
+        let header = &self.finalized_header;
+        header.slot > 0
+            && header.proposer_index == 0
+            && header.parent_root == Default::default()
+            && header.state_root == Default::default()
+            && header.body_root == Default::default()
+    }
+}
+
+#[derive(serde::Deserialize, Debug, Clone)]
 pub struct FinalityUpdate {
     pub attested_header: Header,
     pub finalized_header: Header,
