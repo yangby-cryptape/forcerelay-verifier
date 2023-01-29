@@ -16,8 +16,11 @@ pub struct Config {
     pub consensus_rpc: String,
     pub execution_rpc: String,
     pub ckb_rpc: String,
+    pub ckb_mmr_storage_path: String,
     #[serde(deserialize_with = "bytes_deserialize")]
-    pub lightclient_typeargs: Vec<u8>,
+    pub lightclient_contract_typeargs: Vec<u8>,
+    #[serde(deserialize_with = "bytes_deserialize")]
+    pub lightclient_binary_typeargs: Vec<u8>,
     pub ckb_ibc_client_id: String,
     pub rpc_port: Option<u16>,
     #[serde(

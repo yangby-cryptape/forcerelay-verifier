@@ -5,7 +5,7 @@ use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use std::cmp;
 
-use super::ConsensusRpc;
+use super::{ConsensusRpc, HeaderResponse};
 use crate::constants::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use crate::types::*;
 
@@ -114,6 +114,20 @@ impl ConsensusRpc for NimbusRpc {
             .map_err(|e| RpcError::new("blocks", e))?;
 
         Ok(res.data.message)
+    }
+
+    async fn get_header(&self, slot: u64) -> Result<Header> {
+        let req = format!("{}/eth/v1/beacon/headers/{}", self.rpc, slot);
+        let res = self
+            .client
+            .get(req)
+            .send()
+            .await?
+            .json::<HeaderResponse::Response>()
+            .await
+            .map_err(|e| eyre::eyre!(format!("{} (slot {})", e, slot)))?;
+
+        Ok(res.data.header.message)
     }
 }
 

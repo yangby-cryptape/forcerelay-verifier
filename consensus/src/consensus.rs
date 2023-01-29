@@ -1,4 +1,5 @@
 use std::cmp;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
@@ -6,7 +7,7 @@ use blst::min_pk::PublicKey;
 use chrono::Duration;
 use eyre::eyre;
 use eyre::Result;
-use log::{debug, info};
+use log::{debug, info, warn};
 use ssz_rs::prelude::*;
 use tree_hash::TreeHash;
 
@@ -37,10 +38,11 @@ struct LightClientStore {
     finalized_header: Header,
     current_sync_committee: SyncCommittee,
     next_sync_committee: Option<SyncCommittee>,
+    next_sync_committee_branch: Option<Vec<Bytes32>>,
     optimistic_header: Header,
     previous_max_active_participants: u64,
     current_max_active_participants: u64,
-    all_finalized_headers: Vec<Header>,
+    all_finalized_updates: BTreeMap<u64, Update>,
 }
 
 impl<R: ConsensusRpc> ConsensusClient<R> {
@@ -99,8 +101,69 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         &self.store.finalized_header
     }
 
-    pub fn get_fianlized_headers(&self) -> &Vec<Header> {
-        &self.store.all_finalized_headers
+    async fn store_finality_update(
+        &mut self,
+        finality_update: &FinalityUpdate,
+        keep_continuos: bool,
+    ) -> Result<()> {
+        if self.store.next_sync_committee.is_none() {
+            warn!(
+                "skip finality_update store of slot {}",
+                finality_update.finalized_header.slot
+            );
+            return Ok(());
+        }
+        if keep_continuos {
+            if let Some((_, last_update)) = self.store.all_finalized_updates.last_key_value() {
+                let start_slot = last_update.finalized_header.slot;
+                let end_slot = finality_update.finalized_header.slot;
+                for slot in (start_slot + 1)..=end_slot {
+                    let update = self.get_finality_update(slot).await?;
+                    if let Some(update) = update {
+                        self.store.all_finalized_updates.insert(slot, update);
+                    }
+                }
+            }
+        }
+        let update = Update::from_finality_update(
+            finality_update.clone(),
+            self.store.next_sync_committee.clone().unwrap(),
+            self.store.next_sync_committee_branch.clone().unwrap(),
+        );
+        self.store
+            .all_finalized_updates
+            .insert(update.finalized_header.slot, update);
+        Ok(())
+    }
+
+    pub async fn get_finality_update(
+        &mut self,
+        finality_update_slot: u64,
+    ) -> Result<Option<Update>> {
+        let mut update = self
+            .store
+            .all_finalized_updates
+            .get(&finality_update_slot)
+            .cloned();
+        if update.is_none() && finality_update_slot < self.store.finalized_header.slot {
+            let finalized_header = match self.rpc.get_header(finality_update_slot).await {
+                Ok(header) => header,
+                Err(error) => {
+                    // TODO: need to fallback to another SECURE rpc to ensure the fork status
+                    warn!("beacon header is not found: {}", error);
+                    Header {
+                        slot: finality_update_slot,
+                        ..Default::default()
+                    }
+                }
+            };
+            let new_update = Update::from_finalized_header(finalized_header);
+            self.store
+                .all_finalized_updates
+                .insert(finality_update_slot, new_update.clone());
+            update = Some(new_update);
+        }
+        Ok(update)
     }
 
     pub async fn sync(&mut self) -> Result<()> {
@@ -119,11 +182,15 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         for update in updates {
             self.verify_update(&update)?;
             self.apply_update(&update);
+            self.store
+                .all_finalized_updates
+                .insert(update.finalized_header.slot, update.clone());
         }
 
         let finality_update = self.rpc.get_finality_update().await?;
         self.verify_finality_update(&finality_update)?;
         self.apply_finality_update(&finality_update);
+        self.store_finality_update(&finality_update, false).await?;
 
         let optimistic_update = self.rpc.get_optimistic_update().await?;
         self.verify_optimistic_update(&optimistic_update)?;
@@ -156,6 +223,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                 }
             }
         }
+        self.store_finality_update(&finality_update, true).await?;
 
         Ok(())
     }
@@ -194,10 +262,11 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             finalized_header: bootstrap.header.clone(),
             current_sync_committee: bootstrap.current_sync_committee,
             next_sync_committee: None,
+            next_sync_committee_branch: None,
             optimistic_header: bootstrap.header.clone(),
             previous_max_active_participants: 0,
             current_max_active_participants: 0,
-            all_finalized_headers: vec![bootstrap.header.clone()],
+            all_finalized_updates: BTreeMap::new(),
         };
 
         Ok(())
@@ -349,10 +418,12 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
 
             if self.store.next_sync_committee.is_none() {
                 self.store.next_sync_committee = update.next_sync_committee.clone();
+                self.store.next_sync_committee_branch = update.next_sync_committee_branch.clone();
             } else if update_finalized_period == store_period + 1 {
                 info!("sync committee updated");
                 self.store.current_sync_committee = self.store.next_sync_committee.clone().unwrap();
                 self.store.next_sync_committee = update.next_sync_committee.clone();
+                self.store.next_sync_committee_branch = update.next_sync_committee_branch.clone();
                 self.store.previous_max_active_participants =
                     self.store.current_max_active_participants;
                 self.store.current_max_active_participants = 0;
@@ -373,11 +444,6 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                     self.store.optimistic_header = self.store.finalized_header.clone();
                 }
             }
-        }
-
-        // collect all finalized headers to offer verification support
-        if let Some(header) = update.finalized_header.as_ref() {
-            self.store.all_finalized_headers.push(header.clone());
         }
     }
 

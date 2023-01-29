@@ -1704,7 +1704,7 @@ dependencies = [
 [[package]]
 name = "eth_light_client_in_ckb-prover"
 version = "0.1.0-alpha.0"
-source = "git+https://github.com/yangby-cryptape/eth-light-client-in-ckb?branch=master#42056c567ad3afac22fc343f0bb6bf0ff1893f0e"
+source = "git+https://github.com/yangby-cryptape/eth-light-client-in-ckb?rev=779dab1#779dab1b3a70ec0af064620f312eb90daa22ab7f"
 dependencies = [
  "cita_trie",
  "eth_light_client_in_ckb-verification",
@@ -1718,7 +1718,7 @@ dependencies = [
 [[package]]
 name = "eth_light_client_in_ckb-verification"
 version = "0.1.0-alpha.0"
-source = "git+https://github.com/yangby-cryptape/eth-light-client-in-ckb?branch=master#42056c567ad3afac22fc343f0bb6bf0ff1893f0e"
+source = "git+https://github.com/yangby-cryptape/eth-light-client-in-ckb?rev=779dab1#779dab1b3a70ec0af064620f312eb90daa22ab7f"
 dependencies = [
  "ckb-merkle-mountain-range",
  "eth2_hashing",

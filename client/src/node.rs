@@ -19,7 +19,7 @@ use execution::evm::Evm;
 use execution::rpc::{http_rpc::HttpRpc, ExecutionRpc};
 use execution::types::{CallOpts, ExecutionBlock};
 use execution::ExecutionClient;
-use forcerelay::assembler::ForcerelayAssembler;
+use forcerelay::forcerelay::ForcerelayClient;
 
 use crate::errors::NodeError;
 
@@ -31,7 +31,7 @@ pub struct Node {
     finalized_payloads: BTreeMap<u64, ExecutionPayload>,
     pub history_size: usize,
     block_number_slots: HashMap<u64, u64>,
-    ckb_assembler: ForcerelayAssembler,
+    forcerelay: ForcerelayClient,
 }
 
 impl Node {
@@ -40,7 +40,9 @@ impl Node {
         let checkpoint_hash = &config.checkpoint;
         let execution_rpc = &config.execution_rpc;
         let ckb_rpc = &config.ckb_rpc;
-        let typeargs = &config.lightclient_typeargs;
+        let mmr_storage_path = &config.ckb_mmr_storage_path;
+        let contract_typeargs = &config.lightclient_contract_typeargs;
+        let binary_typeargs = &config.lightclient_binary_typeargs;
         let client_id = &config.ckb_ibc_client_id;
 
         let consensus = ConsensusClient::new(consensus_rpc, checkpoint_hash, config.clone())
@@ -52,7 +54,13 @@ impl Node {
         let payloads = BTreeMap::new();
         let finalized_payloads = BTreeMap::new();
         let block_number_slots = HashMap::new();
-        let ckb_assembler = ForcerelayAssembler::new(ckb_rpc, typeargs, client_id);
+        let forcerelay = ForcerelayClient::new(
+            ckb_rpc,
+            mmr_storage_path,
+            contract_typeargs,
+            binary_typeargs,
+            client_id,
+        );
 
         Ok(Node {
             consensus,
@@ -62,13 +70,17 @@ impl Node {
             finalized_payloads,
             history_size: 64,
             block_number_slots,
-            ckb_assembler,
+            forcerelay,
         })
     }
 
     pub async fn sync(&mut self) -> Result<(), NodeError> {
         self.consensus
             .sync()
+            .await
+            .map_err(NodeError::ConsensusSyncError)?;
+        self.forcerelay
+            .bootstrap(&self.consensus)
             .await
             .map_err(NodeError::ConsensusSyncError)?;
         self.update_number_slots().await?;
@@ -78,6 +90,10 @@ impl Node {
     pub async fn advance(&mut self) -> Result<(), NodeError> {
         self.consensus
             .advance()
+            .await
+            .map_err(NodeError::ConsensusAdvanceError)?;
+        self.forcerelay
+            .align_headers(&self.consensus)
             .await
             .map_err(NodeError::ConsensusAdvanceError)?;
         self.update_number_slots().await?;
@@ -353,11 +369,10 @@ impl Node {
         }
         if slot > 0 && eth_receipts.is_some() {
             let block = self.consensus.rpc.get_block(slot).await?;
-            let headers = self.consensus.get_fianlized_headers();
+            self.forcerelay.align_headers(&self.consensus).await?;
             let ckb_transaction = self
-                .ckb_assembler
+                .forcerelay
                 .assemble_tx(
-                    headers,
                     &block,
                     &eth_transaction,
                     &eth_receipt,
@@ -366,7 +381,7 @@ impl Node {
                 .await?;
             return Ok(Some(ckb_transaction.data().into()));
         }
-        return Ok(None);
+        Ok(None)
     }
 
     pub fn chain_id(&self) -> u64 {
