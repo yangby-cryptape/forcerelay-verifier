@@ -16,7 +16,6 @@ pub struct Config {
     pub consensus_rpc: String,
     pub execution_rpc: String,
     pub ckb_rpc: String,
-    pub ckb_mmr_storage_path: String,
     #[serde(deserialize_with = "bytes_deserialize")]
     pub lightclient_contract_typeargs: Vec<u8>,
     #[serde(deserialize_with = "bytes_deserialize")]
@@ -29,6 +28,7 @@ pub struct Config {
     )]
     pub checkpoint: Vec<u8>,
     pub data_dir: Option<PathBuf>,
+    pub storage_path: PathBuf,
     pub chain: ChainConfig,
     pub forks: Forks,
     pub max_checkpoint_age: u64,

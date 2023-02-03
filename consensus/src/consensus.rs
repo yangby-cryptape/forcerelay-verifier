@@ -1,14 +1,19 @@
 use std::cmp;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
 use blst::min_pk::PublicKey;
 use chrono::Duration;
+use eth2_types::MainnetEthSpec;
+use eth_light_client_in_ckb_verification::{mmr, types::core};
 use eyre::eyre;
 use eyre::Result;
 use log::{debug, info, warn};
 use ssz_rs::prelude::*;
+use storage::{
+    prelude::{StorageAsMMRStore as _, StorageReader as _, StorageWriter as _},
+    Storage,
+};
 use tree_hash::TreeHash;
 
 use common::types::*;
@@ -33,8 +38,8 @@ pub struct ConsensusClient<R: ConsensusRpc> {
     pub config: Arc<Config>,
 }
 
-#[derive(Debug, Default)]
 struct LightClientStore {
+    base_slot: u64,
     finalized_header: Header,
     current_sync_committee: SyncCommittee,
     next_sync_committee: Option<SyncCommittee>,
@@ -42,7 +47,7 @@ struct LightClientStore {
     optimistic_header: Header,
     previous_max_active_participants: u64,
     current_max_active_participants: u64,
-    all_finalized_updates: BTreeMap<u64, Update>,
+    storage: Storage<MainnetEthSpec>,
 }
 
 impl<R: ConsensusRpc> ConsensusClient<R> {
@@ -53,13 +58,36 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
     ) -> Result<ConsensusClient<R>> {
         let rpc = R::new(rpc);
 
+        let storage_path = &config.storage_path;
+        let storage = Storage::new(storage_path)?;
+
+        let store = LightClientStore {
+            base_slot: 0,
+            finalized_header: Default::default(),
+            current_sync_committee: Default::default(),
+            next_sync_committee: None,
+            next_sync_committee_branch: None,
+            optimistic_header: Default::default(),
+            previous_max_active_participants: 0,
+            current_max_active_participants: 0,
+            storage,
+        };
+
         Ok(ConsensusClient {
             rpc,
-            store: LightClientStore::default(),
+            store,
             last_checkpoint: None,
             config,
             initial_checkpoint: checkpoint_block_root.to_vec(),
         })
+    }
+
+    pub fn base_slot(&self) -> u64 {
+        self.store.base_slot
+    }
+
+    pub fn storage(&self) -> &Storage<MainnetEthSpec> {
+        &self.store.storage
     }
 
     pub async fn get_execution_payload(&self, slot: &Option<u64>) -> Result<ExecutionPayload> {
@@ -101,10 +129,48 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         &self.store.finalized_header
     }
 
-    async fn store_finality_update(
+    fn store_finalized_update(&self, update: &Update, update_mmr: bool) -> Result<()> {
+        let storage = self.storage();
+        let header = &update.finalized_header;
+        let slot = header.slot;
+        storage.put_finalized_update(slot, &update)?;
+        if update_mmr {
+            let header_with_cache = {
+                let header: core::Header = header.into();
+                header.calc_cache()
+            };
+            debug!("update MMR with {header_with_cache}");
+            let digest = header_with_cache.digest();
+            match update.finalized_header.slot.cmp(&self.store.base_slot) {
+                cmp::Ordering::Greater => {
+                    if let Some(stored_tip_slot) = storage.get_tip_beacon_header_slot()? {
+                        if stored_tip_slot + 1 == update.finalized_header.slot {
+                            let mut mmr = mmr::ClientRootMMR::new(stored_tip_slot, storage.clone());
+                            mmr.push(digest)?;
+                            mmr.commit()?;
+                        } else {
+                            return Err(eyre!("tip beacon header slot should be checked"));
+                        }
+                    }
+                }
+                cmp::Ordering::Equal => {
+                    if storage.is_initialized()? {
+                        storage.initialize_with(slot, digest)?;
+                    } else {
+                        return Err(eyre!("storage should be checked"));
+                    }
+                }
+                cmp::Ordering::Less => {
+                    return Err(eyre!("base beacon header slot should be checked"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn store_updates_until_finality_update(
         &mut self,
         finality_update: &FinalityUpdate,
-        keep_continuos: bool,
     ) -> Result<()> {
         if self.store.next_sync_committee.is_none() {
             warn!(
@@ -113,16 +179,17 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             );
             return Ok(());
         }
-        if keep_continuos {
-            if let Some((_, last_update)) = self.store.all_finalized_updates.last_key_value() {
-                let start_slot = last_update.finalized_header.slot;
+        if finality_update.finalized_header.slot > self.store.base_slot {
+            if let Some(stored_tip_slot) = self.storage().get_tip_beacon_header_slot()? {
                 let end_slot = finality_update.finalized_header.slot;
-                for slot in (start_slot + 1)..=end_slot {
+                for slot in (stored_tip_slot + 1)..=end_slot {
                     let update = self.get_finality_update(slot).await?;
                     if let Some(update) = update {
-                        self.store.all_finalized_updates.insert(slot, update);
+                        self.store_finalized_update(&update, true)?;
                     }
                 }
+            } else {
+                return Err(eyre!("tip beacon header slot shouldn't be none"));
             }
         }
         let update = Update::from_finality_update(
@@ -130,22 +197,15 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             self.store.next_sync_committee.clone().unwrap(),
             self.store.next_sync_committee_branch.clone().unwrap(),
         );
-        self.store
-            .all_finalized_updates
-            .insert(update.finalized_header.slot, update);
-        Ok(())
+        self.store_finalized_update(&update, true)
     }
 
     pub async fn get_finality_update(
         &mut self,
         finality_update_slot: u64,
     ) -> Result<Option<Update>> {
-        let mut update = self
-            .store
-            .all_finalized_updates
-            .get(&finality_update_slot)
-            .cloned();
-        if update.is_none() && finality_update_slot < self.store.finalized_header.slot {
+        let mut update_opt = self.storage().get_finalized_update(finality_update_slot)?;
+        if update_opt.is_none() && finality_update_slot < self.store.finalized_header.slot {
             let finalized_header = match self.rpc.get_header(finality_update_slot).await {
                 Ok(header) => header,
                 Err(error) => {
@@ -158,20 +218,17 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                 }
             };
             let new_update = Update::from_finalized_header(finalized_header);
-            self.store
-                .all_finalized_updates
-                .insert(finality_update_slot, new_update.clone());
-            update = Some(new_update);
+            update_opt = Some(new_update);
         }
-        Ok(update)
+        Ok(update_opt)
     }
 
-    pub async fn sync(&mut self) -> Result<()> {
+    pub async fn sync(&mut self, base_slot: u64) -> Result<()> {
         info!(
             "Consensus client in sync with checkpoint: 0x{}",
             hex::encode(&self.initial_checkpoint)
         );
-        self.bootstrap().await?;
+        self.bootstrap(base_slot).await?;
 
         let current_period = calc_sync_period(self.store.finalized_header.slot);
         let updates = self
@@ -182,15 +239,14 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         for update in updates {
             self.verify_update(&update)?;
             self.apply_update(&update);
-            self.store
-                .all_finalized_updates
-                .insert(update.finalized_header.slot, update.clone());
+            self.store_finalized_update(&update, false)?;
         }
 
         let finality_update = self.rpc.get_finality_update().await?;
         self.verify_finality_update(&finality_update)?;
         self.apply_finality_update(&finality_update);
-        self.store_finality_update(&finality_update, false).await?;
+        self.store_updates_until_finality_update(&finality_update)
+            .await?;
 
         let optimistic_update = self.rpc.get_optimistic_update().await?;
         self.verify_optimistic_update(&optimistic_update)?;
@@ -223,17 +279,37 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                 }
             }
         }
-        self.store_finality_update(&finality_update, true).await?;
+        self.store_updates_until_finality_update(&finality_update)
+            .await?;
 
         Ok(())
     }
 
-    async fn bootstrap(&mut self) -> Result<()> {
+    async fn bootstrap(&mut self, base_slot: u64) -> Result<()> {
+        if let Some(stored_base_slot) = self.storage().get_base_beacon_header_slot()? {
+            if stored_base_slot != base_slot {
+                panic!(
+                    "The minimal slot in the light client cell on CKB chain \
+                    is not the same as the cached minimal slot in the storage.\n\
+                    Please check if the configured light client cell is correct! \n\
+                    If you have changed the light client cell, you should delete the local storage."
+                );
+            }
+        }
+
         let mut bootstrap = self
             .rpc
             .get_bootstrap(&self.initial_checkpoint)
             .await
             .map_err(|_| eyre!("could not fetch bootstrap"))?;
+
+        if bootstrap.header.slot > base_slot {
+            if let Some(stored_tip_slot) = self.storage().get_tip_beacon_header_slot()? {
+                if bootstrap.header.slot > stored_tip_slot {
+                    return Err(ConsensusError::CheckpointTooNew.into());
+                }
+            }
+        }
 
         let is_valid = self.is_valid_checkpoint(bootstrap.header.slot);
         if !is_valid {
@@ -258,16 +334,10 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             return Err(ConsensusError::InvalidCurrentSyncCommitteeProof.into());
         }
 
-        self.store = LightClientStore {
-            finalized_header: bootstrap.header.clone(),
-            current_sync_committee: bootstrap.current_sync_committee,
-            next_sync_committee: None,
-            next_sync_committee_branch: None,
-            optimistic_header: bootstrap.header.clone(),
-            previous_max_active_participants: 0,
-            current_max_active_participants: 0,
-            all_finalized_updates: BTreeMap::new(),
-        };
+        self.store.base_slot = base_slot;
+        self.store.finalized_header = bootstrap.header.clone();
+        self.store.current_sync_committee = bootstrap.current_sync_committee;
+        self.store.optimistic_header = bootstrap.header.clone();
 
         Ok(())
     }

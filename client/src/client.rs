@@ -25,13 +25,14 @@ pub struct ClientBuilder {
     consensus_rpc: Option<String>,
     execution_rpc: Option<String>,
     ckb_rpc: Option<String>,
-    ckb_mmr_storage_path: Option<String>,
     lightclient_contract_typeargs: Option<Vec<u8>>,
     lightclient_binary_typeargs: Option<Vec<u8>>,
     ibc_client_id: Option<String>,
     checkpoint: Option<Vec<u8>>,
     rpc_port: Option<u16>,
     data_dir: Option<PathBuf>,
+    // TODO `storage_path` should be merged into `data_dir`
+    storage_path: Option<PathBuf>,
     config: Option<Config>,
     fallback: Option<String>,
     load_external_fallback: bool,
@@ -59,11 +60,6 @@ impl ClientBuilder {
 
     pub fn ckb_rpc(mut self, ckb_rpc: &str) -> Self {
         self.ckb_rpc = Some(ckb_rpc.to_string());
-        self
-    }
-
-    pub fn ckb_mmr_storage_path(mut self, storage_path: &str) -> Self {
-        self.ckb_mmr_storage_path = Some(storage_path.to_owned());
         self
     }
 
@@ -100,6 +96,11 @@ impl ClientBuilder {
 
     pub fn data_dir(mut self, data_dir: PathBuf) -> Self {
         self.data_dir = Some(data_dir);
+        self
+    }
+
+    pub fn storage_path(mut self, storage_path: PathBuf) -> Self {
+        self.storage_path = Some(storage_path);
         self
     }
 
@@ -153,14 +154,6 @@ impl ClientBuilder {
                 .clone()
         });
 
-        let ckb_mmr_storage_path = self.ckb_mmr_storage_path.unwrap_or_else(|| {
-            self.config
-                .as_ref()
-                .expect("missing ckb mmr storage path")
-                .ckb_mmr_storage_path
-                .clone()
-        });
-
         let lightclient_contract_typeargs =
             if let Some(typeargs) = self.lightclient_contract_typeargs {
                 typeargs
@@ -210,6 +203,14 @@ impl ClientBuilder {
             None
         };
 
+        let storage_path = self.storage_path.unwrap_or_else(|| {
+            self.config
+                .as_ref()
+                .expect("missing ckb mmr storage path")
+                .storage_path
+                .clone()
+        });
+
         let fallback = if self.fallback.is_some() {
             self.fallback
         } else if let Some(config) = &self.config {
@@ -228,13 +229,13 @@ impl ClientBuilder {
             consensus_rpc,
             execution_rpc,
             ckb_rpc,
-            ckb_mmr_storage_path,
             lightclient_contract_typeargs,
             lightclient_binary_typeargs,
             ckb_ibc_client_id: client_id,
             checkpoint,
             rpc_port,
             data_dir,
+            storage_path,
             chain: base_config.chain,
             forks: base_config.forks,
             max_checkpoint_age: base_config.max_checkpoint_age,

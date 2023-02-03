@@ -24,4 +24,8 @@ pub enum ConsensusError {
     PayloadNotFound(u64),
     #[error("checkpoint is too old")]
     CheckpointTooOld,
+    #[error("checkpoint is too new")]
+    CheckpointTooNew,
+    #[error("storage error: {0}")]
+    StorageError(#[from] storage::error::Error),
 }

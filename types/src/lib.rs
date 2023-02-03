@@ -1,3 +1,6 @@
+use std::result::Result as StdResult;
+
+use eth_light_client_in_ckb_verification::types::core;
 use eyre::Result;
 use serde::de::Error;
 use ssz_rs::prelude::*;
@@ -13,67 +16,6 @@ pub type Transaction = List<u8, 1073741824>;
 
 pub type BeaconBlock = eth2_types::BeaconBlock<eth2_types::MainnetEthSpec>;
 pub type ExecutionPayload = eth2_types::ExecutionPayload<eth2_types::MainnetEthSpec>;
-
-// #[derive(serde::Deserialize, Debug, Default, SimpleSerialize, Clone)]
-// pub struct BeaconBlock {
-//     #[serde(deserialize_with = "u64_deserialize")]
-//     pub slot: u64,
-//     #[serde(deserialize_with = "u64_deserialize")]
-//     pub proposer_index: u64,
-//     #[serde(deserialize_with = "bytes32_deserialize")]
-//     pub parent_root: Bytes32,
-//     #[serde(deserialize_with = "bytes32_deserialize")]
-//     pub state_root: Bytes32,
-//     pub body: BeaconBlockBody,
-// }
-
-// #[derive(serde::Deserialize, Debug, Default, SimpleSerialize, Clone)]
-// pub struct BeaconBlockBody {
-//     #[serde(deserialize_with = "signature_deserialize")]
-//     randao_reveal: SignatureBytes,
-//     eth1_data: Eth1Data,
-//     #[serde(deserialize_with = "bytes32_deserialize")]
-//     graffiti: Bytes32,
-//     proposer_slashings: List<ProposerSlashing, 16>,
-//     attester_slashings: List<AttesterSlashing, 2>,
-//     attestations: List<Attestation, 128>,
-//     deposits: List<Deposit, 16>,
-//     voluntary_exits: List<SignedVoluntaryExit, 16>,
-//     sync_aggregate: SyncAggregate,
-//     pub execution_payload: ExecutionPayload,
-// }
-
-// #[derive(serde::Deserialize, Debug, Default, SimpleSerialize, Clone)]
-// pub struct ExecutionPayload {
-//     #[serde(deserialize_with = "bytes32_deserialize")]
-//     pub parent_hash: Bytes32,
-//     #[serde(deserialize_with = "address_deserialize")]
-//     pub fee_recipient: Address,
-//     #[serde(deserialize_with = "bytes32_deserialize")]
-//     pub state_root: Bytes32,
-//     #[serde(deserialize_with = "bytes32_deserialize")]
-//     pub receipts_root: Bytes32,
-//     #[serde(deserialize_with = "logs_bloom_deserialize")]
-//     pub logs_bloom: Vector<u8, 256>,
-//     #[serde(deserialize_with = "bytes32_deserialize")]
-//     pub prev_randao: Bytes32,
-//     #[serde(deserialize_with = "u64_deserialize")]
-//     pub block_number: u64,
-//     #[serde(deserialize_with = "u64_deserialize")]
-//     pub gas_limit: u64,
-//     #[serde(deserialize_with = "u64_deserialize")]
-//     pub gas_used: u64,
-//     #[serde(deserialize_with = "u64_deserialize")]
-//     pub timestamp: u64,
-//     #[serde(deserialize_with = "extra_data_deserialize")]
-//     pub extra_data: List<u8, 32>,
-//     #[serde(deserialize_with = "u256_deserialize")]
-//     pub base_fee_per_gas: U256,
-//     #[serde(deserialize_with = "bytes32_deserialize")]
-//     pub block_hash: Bytes32,
-//     #[serde(deserialize_with = "transactions_deserialize")]
-//     pub transactions: List<Transaction, 1048576>,
-// }
 
 #[derive(serde::Deserialize, Debug, Default, SimpleSerialize, Clone)]
 struct ProposerSlashing {
@@ -211,6 +153,17 @@ pub struct Update {
     pub signature_slot: u64,
 }
 
+#[derive(Default, SimpleSerialize)]
+struct InnerUpdate {
+    pub attested_header: Header,
+    pub next_sync_committee: SyncCommittee,
+    pub next_sync_committee_branch: List<Bytes32, 512>,
+    pub finalized_header: Header,
+    pub finality_branch: List<Bytes32, 512>,
+    pub sync_aggregate: SyncAggregate,
+    pub signature_slot: u64,
+}
+
 impl Update {
     pub fn from_finality_update(
         update: FinalityUpdate,
@@ -242,6 +195,56 @@ impl Update {
             && header.parent_root == Default::default()
             && header.state_root == Default::default()
             && header.body_root == Default::default()
+    }
+
+    fn from_inner(inner: InnerUpdate) -> Self {
+        let InnerUpdate {
+            attested_header,
+            finalized_header,
+            finality_branch,
+            next_sync_committee,
+            next_sync_committee_branch,
+            sync_aggregate,
+            signature_slot,
+        } = inner;
+        Update {
+            attested_header,
+            finalized_header,
+            finality_branch: finality_branch.to_vec(),
+            next_sync_committee,
+            next_sync_committee_branch: next_sync_committee_branch.to_vec(),
+            sync_aggregate,
+            signature_slot,
+        }
+    }
+
+    pub fn from_slice(bytes: &[u8]) -> StdResult<Self, DeserializeError> {
+        let inner = InnerUpdate::deserialize(bytes)?;
+        Ok(Self::from_inner(inner))
+    }
+
+    pub fn into_bytes(self) -> StdResult<Vec<u8>, SerializeError> {
+        let Update {
+            attested_header,
+            finalized_header,
+            finality_branch,
+            next_sync_committee,
+            next_sync_committee_branch,
+            sync_aggregate,
+            signature_slot,
+        } = self;
+        let inner = InnerUpdate {
+            attested_header,
+            finalized_header,
+            finality_branch: List::from_iter(finality_branch.into_iter()),
+            next_sync_committee,
+            next_sync_committee_branch: List::from_iter(next_sync_committee_branch.into_iter()),
+            sync_aggregate,
+            signature_slot,
+        };
+        let mut bytes = Vec::new();
+        inner.serialize(&mut bytes)?;
+        Ok(bytes)
     }
 }
 
@@ -345,6 +348,18 @@ impl From<&OptimisticUpdate> for GenericUpdate {
     }
 }
 
+impl From<&Header> for core::Header {
+    fn from(input: &Header) -> Self {
+        Self {
+            slot: input.slot,
+            proposer_index: input.proposer_index,
+            parent_root: core::Hash::from_slice(&input.parent_root),
+            state_root: core::Hash::from_slice(&input.state_root),
+            body_root: core::Hash::from_slice(&input.body_root),
+        }
+    }
+}
+
 fn pubkey_deserialize<'de, D>(deserializer: D) -> Result<BLSPubKey, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -415,17 +430,6 @@ where
     Ok(val.parse().unwrap())
 }
 
-// fn u256_deserialize<'de, D>(deserializer: D) -> Result<U256, D::Error>
-// where
-//     D: serde::Deserializer<'de>,
-// {
-//     let val: String = serde::Deserialize::deserialize(deserializer)?;
-//     let x = ethers::types::U256::from_dec_str(&val).map_err(D::Error::custom)?;
-//     let mut x_bytes = [0; 32];
-//     x.to_little_endian(&mut x_bytes);
-//     Ok(U256::from_bytes_le(x_bytes))
-// }
-
 fn bytes32_deserialize<'de, D>(deserializer: D) -> Result<Bytes32, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -434,49 +438,6 @@ where
     let bytes = hex::decode(bytes.strip_prefix("0x").unwrap()).unwrap();
     Ok(bytes.to_vec().try_into().unwrap())
 }
-
-// fn logs_bloom_deserialize<'de, D>(deserializer: D) -> Result<LogsBloom, D::Error>
-// where
-//     D: serde::Deserializer<'de>,
-// {
-//     let bytes: String = serde::Deserialize::deserialize(deserializer)?;
-//     let bytes = hex::decode(bytes.strip_prefix("0x").unwrap()).unwrap();
-//     Ok(bytes.to_vec().try_into().unwrap())
-// }
-
-// fn address_deserialize<'de, D>(deserializer: D) -> Result<Address, D::Error>
-// where
-//     D: serde::Deserializer<'de>,
-// {
-//     let bytes: String = serde::Deserialize::deserialize(deserializer)?;
-//     let bytes = hex::decode(bytes.strip_prefix("0x").unwrap()).unwrap();
-//     Ok(bytes.to_vec().try_into().unwrap())
-// }
-
-// fn extra_data_deserialize<'de, D>(deserializer: D) -> Result<List<u8, 32>, D::Error>
-// where
-//     D: serde::Deserializer<'de>,
-// {
-//     let bytes: String = serde::Deserialize::deserialize(deserializer)?;
-//     let bytes = hex::decode(bytes.strip_prefix("0x").unwrap()).unwrap();
-//     Ok(bytes.to_vec().try_into().unwrap())
-// }
-
-// fn transactions_deserialize<'de, D>(deserializer: D) -> Result<List<Transaction, 1048576>, D::Error>
-// where
-//     D: serde::Deserializer<'de>,
-// {
-//     let transactions: Vec<String> = serde::Deserialize::deserialize(deserializer)?;
-//     let transactions = transactions
-//         .iter()
-//         .map(|tx| {
-//             let tx = hex_str_to_bytes(tx).unwrap();
-//             let tx: Transaction = List::from_iter(tx);
-//             tx
-//         })
-//         .collect::<List<Transaction, 1048576>>();
-//     Ok(transactions)
-// }
 
 fn attesting_indices_deserialize<'de, D>(deserializer: D) -> Result<List<u64, 2048>, D::Error>
 where
