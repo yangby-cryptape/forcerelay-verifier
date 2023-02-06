@@ -40,7 +40,6 @@ impl Node {
         let checkpoint_hash = &config.checkpoint;
         let execution_rpc = &config.execution_rpc;
         let ckb_rpc = &config.ckb_rpc;
-        let mmr_storage_path = &config.ckb_mmr_storage_path;
         let contract_typeargs = &config.lightclient_contract_typeargs;
         let binary_typeargs = &config.lightclient_binary_typeargs;
         let client_id = &config.ckb_ibc_client_id;
@@ -54,13 +53,8 @@ impl Node {
         let payloads = BTreeMap::new();
         let finalized_payloads = BTreeMap::new();
         let block_number_slots = HashMap::new();
-        let forcerelay = ForcerelayClient::new(
-            ckb_rpc,
-            mmr_storage_path,
-            contract_typeargs,
-            binary_typeargs,
-            client_id,
-        );
+        let forcerelay =
+            ForcerelayClient::new(ckb_rpc, contract_typeargs, binary_typeargs, client_id);
 
         Ok(Node {
             consensus,
@@ -75,12 +69,13 @@ impl Node {
     }
 
     pub async fn sync(&mut self) -> Result<(), NodeError> {
-        self.consensus
-            .sync()
+        let client = self
+            .forcerelay
+            .onchain_client()
             .await
             .map_err(NodeError::ConsensusSyncError)?;
-        self.forcerelay
-            .bootstrap(&self.consensus)
+        self.consensus
+            .sync(client.minimal_slot)
             .await
             .map_err(NodeError::ConsensusSyncError)?;
         self.update_number_slots().await?;
@@ -90,10 +85,6 @@ impl Node {
     pub async fn advance(&mut self) -> Result<(), NodeError> {
         self.consensus
             .advance()
-            .await
-            .map_err(NodeError::ConsensusAdvanceError)?;
-        self.forcerelay
-            .align_headers(&self.consensus)
             .await
             .map_err(NodeError::ConsensusAdvanceError)?;
         self.update_number_slots().await?;
@@ -369,10 +360,24 @@ impl Node {
         }
         if slot > 0 && eth_receipts.is_some() {
             let block = self.consensus.rpc.get_block(slot).await?;
-            self.forcerelay.align_headers(&self.consensus).await?;
+            let client = self
+                .forcerelay
+                .onchain_client()
+                .await
+                .map_err(NodeError::ConsensusSyncError)?;
+            if self.consensus.base_slot() != client.minimal_slot {
+                panic!("the light-client cell was re-deployed, the base slot was changed");
+            }
+            if slot < client.minimal_slot {
+                return Err(eyre::eyre!("the block is old than the client"));
+            }
+            if slot > client.maximal_slot {
+                return Err(eyre::eyre!("the block is new than the client"));
+            }
             let ckb_transaction = self
                 .forcerelay
                 .assemble_tx(
+                    &self.consensus,
                     &block,
                     &eth_transaction,
                     &eth_receipt,

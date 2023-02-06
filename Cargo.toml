@@ -10,6 +10,8 @@ members = [
     "client",
     "common",
     "config",
+    "types",
+    "storage",
     "consensus",
     "execution",
     "forcerelay"
@@ -19,6 +21,8 @@ members = [
 client = { path = "./client" }
 config = { path = "./config" }
 common = { path = "./common" }
+types = { path = "./types" }
+storage = { path = "./storage" }
 consensus = { path = "./consensus" }
 execution = { path = "./execution" }
 

@@ -3,14 +3,15 @@ use ckb_sdk::traits::{CellQueryOptions, LiveCell, PrimaryScriptType};
 use ckb_types::core::{DepType, TransactionView};
 use ckb_types::packed::{BytesOpt, CellDep, Script, WitnessArgs};
 use ckb_types::prelude::Pack as _;
+use consensus::rpc::ConsensusRpc;
 use consensus::types::Header;
+use consensus::ConsensusClient;
 use eth2_types::{BeaconBlockHeader, Hash256, MainnetEthSpec};
 use eth_light_client_in_ckb_prover::{CachedBeaconBlock, Receipts};
-use eth_light_client_in_ckb_verification::mmr;
 use eth_light_client_in_ckb_verification::types::{core, packed, prelude::*};
 use ethers::types::{Transaction, TransactionReceipt};
 use eyre::Result;
-use tree_hash::TreeHash;
+use storage::prelude::StorageAsMMRStore as _;
 
 use crate::rpc::RpcClient;
 
@@ -64,42 +65,15 @@ pub fn find_receipt_index(receipt: &TransactionReceipt, receipts: &Receipts) -> 
 }
 
 pub fn assemble_partial_verification_transaction(
-    headers: &[BeaconBlockHeader],
+    consensus: &ConsensusClient<impl ConsensusRpc>,
     block: &CachedBeaconBlock<MainnetEthSpec>,
     tx: &Transaction,
     receipt: &TransactionReceipt,
     receipts: &Receipts,
     celldeps: &[CellDep],
+    client: &core::Client,
 ) -> Result<TransactionView> {
-    let store = mmr::lib::util::MemStore::default();
-    let mmr = {
-        let mut mmr = mmr::ClientRootMMR::new(0, &store);
-        for header in headers {
-            let header: core::Header = packed::Header::from_ssz_header(header).unpack();
-            mmr.push(header.calc_cache().digest()).unwrap();
-        }
-        mmr
-    };
-    let last_header = &headers[headers.len() - 1];
-    // TODO should use the client from CKB chain to do checks.
-    let client = core::Client {
-        minimal_slot: headers[0].slot.into(),
-        maximal_slot: last_header.slot.into(),
-        tip_header_root: last_header.tree_hash_root(),
-        headers_mmr_root: mmr.get_root().unwrap().unpack(),
-    };
-    let header = {
-        let mut header = None;
-        headers.iter().for_each(|item| {
-            if item.slot == block.slot() {
-                header = Some(item);
-            }
-        });
-        if header.is_none() {
-            return Err(eyre::eyre!("unexpected block slot"));
-        }
-        header.unwrap()
-    };
+    let mmr = consensus.storage().chain_root_mmr(client.maximal_slot)?;
     let mmr_position = block.slot() - client.minimal_slot;
     let header_mmr_proof = mmr
         .gen_proof(vec![mmr_position.into()])
@@ -113,8 +87,9 @@ pub fn assemble_partial_verification_transaction(
         block.generate_transaction_proof_for_block_body(transaction_index as usize);
     let receipt_mpt_proof = receipts.generate_proof(transaction_index as usize);
     let receipts_root_ssz_proof = block.generate_receipts_root_proof_for_block_body();
+    let beacon_header = block.original().block_header();
     let proof = core::TransactionProof {
-        header: packed::Header::from_ssz_header(header).unpack(),
+        header: packed::Header::from_ssz_header(&beacon_header).unpack(),
         receipts_root: receipts.root(),
         transaction_index,
         header_mmr_proof,

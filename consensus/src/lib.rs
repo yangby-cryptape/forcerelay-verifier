@@ -1,6 +1,6 @@
 pub mod errors;
 pub mod rpc;
-pub mod types;
+pub extern crate types;
 
 mod consensus;
 pub use crate::consensus::*;

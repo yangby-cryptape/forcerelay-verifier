@@ -3,7 +3,9 @@ use ckb_sdk::traits::LiveCell;
 use ckb_types::core::{ScriptHashType, TransactionView};
 use ckb_types::packed::{CellDep, Script};
 use ckb_types::prelude::*;
-use consensus::types::{BeaconBlock, Header};
+use consensus::rpc::ConsensusRpc;
+use consensus::types::BeaconBlock;
+use consensus::ConsensusClient;
 use eth2_types::MainnetEthSpec;
 use eth_light_client_in_ckb_prover::{CachedBeaconBlock, Receipts};
 use eth_light_client_in_ckb_verification::types::{packed, prelude::Unpack};
@@ -66,15 +68,12 @@ impl ForcerelayAssembler {
 
     pub async fn assemble_tx(
         &self,
-        headers: &Vec<Header>,
+        consensus: &ConsensusClient<impl ConsensusRpc>,
         block: &BeaconBlock,
         tx: &Transaction,
         receipt: &TransactionReceipt,
         all_receipts: &[TransactionReceipt],
     ) -> Result<TransactionView> {
-        if headers.is_empty() {
-            return Err(eyre::eyre!("empty headers"));
-        }
         let (contract_celldep, binary_celldep, lightclient_cell) = prepare_onchain_data(
             &self.rpc,
             &self.contract_typeid_script,
@@ -85,25 +84,18 @@ impl ForcerelayAssembler {
         if packed::ClientReader::verify(&lightclient_cell.output_data, false).is_err() {
             return Err(eyre::eyre!("unsupported lightlient data"));
         }
-        let packed_client = packed::Client::new_unchecked(lightclient_cell.output_data);
-        if headers[0].slot > packed_client.minimal_slot().unpack() {
-            return Err(eyre::eyre!("native slot excessive than onchain"));
-        }
-        let excessive_slots = packed_client.minimal_slot().unpack() - headers[0].slot;
-        let headers = headers
-            .iter()
-            .skip(excessive_slots as usize)
-            .map(header_helios_to_lighthouse)
-            .collect::<Vec<_>>();
+        let client = packed::Client::new_unchecked(lightclient_cell.output_data).unpack();
+        log::debug!("current onchain client {client}");
         let block: CachedBeaconBlock<MainnetEthSpec> = block.clone().into();
         let receipts: Receipts = all_receipts.to_owned().into();
         assemble_partial_verification_transaction(
-            &headers,
+            consensus,
             &block,
             tx,
             receipt,
             &receipts,
             &[contract_celldep, binary_celldep],
+            &client,
         )
     }
 }

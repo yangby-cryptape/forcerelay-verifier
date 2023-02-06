@@ -1,10 +1,13 @@
 use ckb_types::core::TransactionView;
 use consensus::rpc::ConsensusRpc;
-use consensus::types::{BeaconBlock, Header};
+use consensus::types::BeaconBlock;
 use consensus::ConsensusClient;
-use eth_light_client_in_ckb_verification::types::prelude::Unpack;
+use eth_light_client_in_ckb_verification::types::{
+    core::Client as OnChainClient, prelude::Unpack as _,
+};
 use ethers::types::{Transaction, TransactionReceipt};
 use eyre::Result;
+use log::debug;
 use reqwest::Url;
 
 use crate::assembler::ForcerelayAssembler;
@@ -12,13 +15,11 @@ use crate::rpc::RpcClient;
 
 pub struct ForcerelayClient {
     assembler: ForcerelayAssembler,
-    // TODO: add mmr storage variable here
 }
 
 impl ForcerelayClient {
     pub fn new(
         rpc_url: &str,
-        storage_path: &str,
         contract_typeargs: &Vec<u8>,
         binary_typeargs: &Vec<u8>,
         client_id: &String,
@@ -30,36 +31,26 @@ impl ForcerelayClient {
         Self { assembler }
     }
 
-    pub async fn bootstrap(&self, consensus: &ConsensusClient<impl ConsensusRpc>) -> Result<()> {
-        self.align_headers(consensus).await?;
-        Ok(())
-    }
-
-    pub async fn align_headers(
-        &self,
-        consensus: &ConsensusClient<impl ConsensusRpc>,
-    ) -> Result<()> {
+    pub async fn onchain_client(&self) -> Result<OnChainClient> {
         if let Some(packed_client) = self.assembler.fetch_onchain_packed_client().await? {
-            let minimal_header_slot: u64 = packed_client.minimal_slot().unpack();
-            let maximal_header_slot: u64 = packed_client.maximal_slot().unpack();
-            // TODO: align headers from native and onchain
+            let client = packed_client.unpack();
+            debug!("current onchain client {client}");
+            Ok(client)
         } else {
-            return Err(eyre::eyre!("no lightclient cell deployed on ckb"));
+            Err(eyre::eyre!("no lightclient cell deployed on ckb"))
         }
-        Ok(())
     }
 
     pub async fn assemble_tx(
         &self,
+        consensus: &ConsensusClient<impl ConsensusRpc>,
         block: &BeaconBlock,
         tx: &Transaction,
         receipt: &TransactionReceipt,
         all_receipts: &[TransactionReceipt],
     ) -> Result<TransactionView> {
-        // TODO: replace `headers` with mmr variable here
-        let headers = vec![];
         self.assembler
-            .assemble_tx(&headers, block, tx, receipt, all_receipts)
+            .assemble_tx(consensus, block, tx, receipt, all_receipts)
             .await
     }
 }
