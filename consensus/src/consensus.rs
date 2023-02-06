@@ -732,7 +732,8 @@ fn is_current_committee_proof_valid(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{path::PathBuf, sync::Arc};
+    use tempfile::TempDir;
 
     use crate::constants::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
     use ssz_rs::Vector;
@@ -746,7 +747,7 @@ mod tests {
     };
     use config::{networks, Config};
 
-    async fn get_client(large_checkpoint_age: bool) -> ConsensusClient<MockRpc> {
+    async fn get_client(large_checkpoint_age: bool, path: PathBuf) -> ConsensusClient<MockRpc> {
         let base_config = networks::goerli();
         let config = Config {
             consensus_rpc: String::new(),
@@ -754,6 +755,7 @@ mod tests {
             chain: base_config.chain,
             forks: base_config.forks,
             max_checkpoint_age: if large_checkpoint_age { 123123123 } else { 123 },
+            storage_path: path,
             ..Default::default()
         };
 
@@ -762,13 +764,14 @@ mod tests {
                 .unwrap();
 
         let mut client = ConsensusClient::new("testdata/", &checkpoint, Arc::new(config)).unwrap();
-        client.bootstrap().await.unwrap();
+        client.bootstrap(3781056).await.unwrap();
         client
     }
 
     #[tokio::test]
     async fn test_verify_update() {
-        let client = get_client(true).await;
+        let storage = TempDir::new().unwrap();
+        let client = get_client(true, storage.into_path()).await;
         let period = calc_sync_period(client.store.finalized_header.slot);
         let updates = client
             .rpc
@@ -782,7 +785,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_update_invalid_committee() {
-        let client = get_client(true).await;
+        let storage = TempDir::new().unwrap();
+        let client = get_client(true, storage.into_path()).await;
         let period = calc_sync_period(client.store.finalized_header.slot);
         let updates = client
             .rpc
@@ -802,7 +806,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_update_invalid_finality() {
-        let client = get_client(true).await;
+        let storage = TempDir::new().unwrap();
+        let client = get_client(true, storage.into_path()).await;
         let period = calc_sync_period(client.store.finalized_header.slot);
         let updates = client
             .rpc
@@ -822,7 +827,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_update_invalid_sig() {
-        let client = get_client(true).await;
+        let storage = TempDir::new().unwrap();
+        let client = get_client(true, storage.into_path()).await;
         let period = calc_sync_period(client.store.finalized_header.slot);
         let updates = client
             .rpc
@@ -842,8 +848,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_finality() {
-        let mut client = get_client(true).await;
-        client.sync().await.unwrap();
+        let storage = TempDir::new().unwrap();
+        let mut client = get_client(true, storage.into_path()).await;
+        client.sync(3781056).await.unwrap();
 
         let update = client.rpc.get_finality_update().await.unwrap();
 
@@ -852,8 +859,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_finality_invalid_finality() {
-        let mut client = get_client(true).await;
-        client.sync().await.unwrap();
+        let storage = TempDir::new().unwrap();
+        let mut client = get_client(true, storage.into_path()).await;
+        client.sync(3781056).await.unwrap();
 
         let mut update = client.rpc.get_finality_update().await.unwrap();
         update.finalized_header = Header::default();
@@ -867,8 +875,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_finality_invalid_sig() {
-        let mut client = get_client(true).await;
-        client.sync().await.unwrap();
+        let storage = TempDir::new().unwrap();
+        let mut client = get_client(true, storage.into_path()).await;
+        client.sync(3781056).await.unwrap();
 
         let mut update = client.rpc.get_finality_update().await.unwrap();
         update.sync_aggregate.sync_committee_signature = Vector::default();
@@ -882,8 +891,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_optimistic() {
-        let mut client = get_client(true).await;
-        client.sync().await.unwrap();
+        let storage = TempDir::new().unwrap();
+        let mut client = get_client(true, storage.into_path()).await;
+        client.sync(3781056).await.unwrap();
 
         let update = client.rpc.get_optimistic_update().await.unwrap();
         client.verify_optimistic_update(&update).unwrap();
@@ -891,8 +901,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_optimistic_invalid_sig() {
-        let mut client = get_client(true).await;
-        client.sync().await.unwrap();
+        let storage = TempDir::new().unwrap();
+        let mut client = get_client(true, storage.into_path()).await;
+        client.sync(3781056).await.unwrap();
 
         let mut update = client.rpc.get_optimistic_update().await.unwrap();
         update.sync_aggregate.sync_committee_signature = Vector::default();
@@ -907,6 +918,7 @@ mod tests {
     #[tokio::test]
     #[should_panic]
     async fn test_verify_checkpoint_age_invalid() {
-        get_client(false).await;
+        let storage = TempDir::new().unwrap();
+        get_client(false, storage.into_path()).await;
     }
 }

@@ -1,9 +1,10 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
+use tempfile::TempDir;
 
 use config::{networks, Config};
 use consensus::{rpc::mock_rpc::MockRpc, ConsensusClient};
 
-async fn setup() -> ConsensusClient<MockRpc> {
+async fn setup(path: PathBuf) -> ConsensusClient<MockRpc> {
     let base_config = networks::goerli();
     let config = Config {
         consensus_rpc: String::new(),
@@ -11,6 +12,7 @@ async fn setup() -> ConsensusClient<MockRpc> {
         chain: base_config.chain,
         forks: base_config.forks,
         max_checkpoint_age: 123123123,
+        storage_path: path,
         ..Default::default()
     };
 
@@ -22,8 +24,9 @@ async fn setup() -> ConsensusClient<MockRpc> {
 
 #[tokio::test]
 async fn test_sync() {
-    let mut client = setup().await;
-    client.sync().await.unwrap();
+    let storage = TempDir::new().unwrap();
+    let mut client = setup(storage.into_path()).await;
+    client.sync(3781056).await.unwrap();
 
     let head = client.get_header();
     assert_eq!(head.slot, 3818196);
@@ -34,8 +37,9 @@ async fn test_sync() {
 
 #[tokio::test]
 async fn test_get_payload() {
-    let mut client = setup().await;
-    client.sync().await.unwrap();
+    let storage = TempDir::new().unwrap();
+    let mut client = setup(storage.into_path()).await;
+    client.sync(3781056).await.unwrap();
 
     let payload = client.get_execution_payload(&None).await.unwrap();
     assert_eq!(payload.block_number, 7530932);
