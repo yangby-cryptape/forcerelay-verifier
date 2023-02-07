@@ -32,6 +32,7 @@ impl<S> Storage<S> {
         let cf_names = {
             let mut cf_names = Vec::with_capacity(columns::COUNT);
             cf_names.push(columns::COLUMN_BEACON_HEADER_MMR.to_string());
+            cf_names.push(columns::COLUMN_FINALIZED_UPDATES.to_string());
             cf_names
         };
         let cf_descriptors: Vec<_> = cf_names

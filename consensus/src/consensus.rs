@@ -5,10 +5,10 @@ use std::time::UNIX_EPOCH;
 use blst::min_pk::PublicKey;
 use chrono::Duration;
 use eth2_types::MainnetEthSpec;
-use eth_light_client_in_ckb_verification::{mmr, types::core};
+use eth_light_client_in_ckb_verification::types::core;
 use eyre::eyre;
 use eyre::Result;
-use log::{debug, info, warn};
+use log::{debug, info, trace, warn};
 use ssz_rs::prelude::*;
 use storage::{
     prelude::{StorageAsMMRStore as _, StorageReader as _, StorageWriter as _},
@@ -130,22 +130,24 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
     }
 
     fn store_finalized_update(&self, update: &Update, update_mmr: bool) -> Result<()> {
+        trace!("store finalized update with update_mmr = {}", update_mmr);
         let storage = self.storage();
         let header = &update.finalized_header;
         let slot = header.slot;
+        let base_slot = self.store.base_slot;
         storage.put_finalized_update(slot, &update)?;
         if update_mmr {
             let header_with_cache = {
                 let header: core::Header = header.into();
                 header.calc_cache()
             };
-            debug!("update MMR with {header_with_cache}");
+            debug!("update MMR with {header_with_cache} and base {}", base_slot);
             let digest = header_with_cache.digest();
-            match update.finalized_header.slot.cmp(&self.store.base_slot) {
+            match slot.cmp(&base_slot) {
                 cmp::Ordering::Greater => {
                     if let Some(stored_tip_slot) = storage.get_tip_beacon_header_slot()? {
-                        if stored_tip_slot + 1 == update.finalized_header.slot {
-                            let mut mmr = mmr::ClientRootMMR::new(stored_tip_slot, storage.clone());
+                        if stored_tip_slot + 1 == slot {
+                            let mut mmr = storage.chain_root_mmr(stored_tip_slot)?;
                             mmr.push(digest)?;
                             mmr.commit()?;
                         } else {
@@ -165,6 +167,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                 }
             }
         }
+        storage.put_tip_beacon_header_slot(slot)?;
         Ok(())
     }
 
@@ -172,19 +175,18 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         &mut self,
         finality_update: &FinalityUpdate,
     ) -> Result<()> {
+        let base_slot = self.store.base_slot;
+        let end_slot = finality_update.finalized_header.slot;
         if self.store.next_sync_committee.is_none() {
-            warn!(
-                "skip finality_update store of slot {}",
-                finality_update.finalized_header.slot
-            );
+            warn!("skip finalized update for slot {}", end_slot);
             return Ok(());
         }
-        if finality_update.finalized_header.slot > self.store.base_slot {
+        if end_slot > self.store.base_slot {
             if let Some(stored_tip_slot) = self.storage().get_tip_beacon_header_slot()? {
-                let end_slot = finality_update.finalized_header.slot;
-                for slot in (stored_tip_slot + 1)..=end_slot {
+                for slot in (stored_tip_slot + 1)..end_slot {
                     let update = self.get_finality_update(slot).await?;
                     if let Some(update) = update {
+                        debug!("store finalized update for slot {} with true in loop", slot);
                         self.store_finalized_update(&update, true)?;
                     }
                 }
@@ -197,6 +199,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             self.store.next_sync_committee.clone().unwrap(),
             self.store.next_sync_committee_branch.clone().unwrap(),
         );
+        debug!("store finalized update for slot {} with true", end_slot);
         self.store_finalized_update(&update, true)
     }
 

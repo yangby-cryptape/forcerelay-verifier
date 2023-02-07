@@ -52,7 +52,6 @@ pub trait StorageAsMMRStore<S: EthSpec>:
 
     fn initialize_with(&self, slot: Slot, digest: packed::HeaderDigest) -> Result<()> {
         self.put_base_beacon_header_slot(slot)?;
-        self.put_tip_beacon_header_slot(slot)?;
         let mut mmr = ClientRootMMR::new(0, self.clone());
         mmr.push(digest)?;
         mmr.commit()?;
