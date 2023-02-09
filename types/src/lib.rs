@@ -259,6 +259,18 @@ pub struct FinalityUpdate {
     pub signature_slot: u64,
 }
 
+impl From<Update> for FinalityUpdate {
+    fn from(value: Update) -> Self {
+        Self {
+            attested_header: value.attested_header,
+            finalized_header: value.finalized_header,
+            finality_branch: value.finality_branch,
+            sync_aggregate: value.sync_aggregate,
+            signature_slot: value.signature_slot,
+        }
+    }
+}
+
 #[derive(serde::Deserialize, Debug)]
 pub struct OptimisticUpdate {
     pub attested_header: Header,
@@ -267,7 +279,7 @@ pub struct OptimisticUpdate {
     pub signature_slot: u64,
 }
 
-#[derive(serde::Deserialize, Debug, Clone, Default, SimpleSerialize)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default, SimpleSerialize)]
 pub struct Header {
     #[serde(deserialize_with = "u64_deserialize")]
     pub slot: u64,

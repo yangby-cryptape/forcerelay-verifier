@@ -130,7 +130,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
     }
 
     fn store_finalized_update(&self, update: &Update, update_mmr: bool) -> Result<()> {
-        trace!("store finalized update with update_mmr = {}", update_mmr);
+        trace!("store finalized update with update_mmr = {update_mmr}");
         let storage = self.storage();
         let header = &update.finalized_header;
         let slot = header.slot;
@@ -141,7 +141,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                 let header: core::Header = header.into();
                 header.calc_cache()
             };
-            debug!("update MMR with {header_with_cache} and base {}", base_slot);
+            debug!("update mmr with {header_with_cache} and base {base_slot}");
             let digest = header_with_cache.digest();
             match slot.cmp(&base_slot) {
                 cmp::Ordering::Greater => {
@@ -175,10 +175,9 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         &mut self,
         finality_update: &FinalityUpdate,
     ) -> Result<()> {
-        let base_slot = self.store.base_slot;
         let end_slot = finality_update.finalized_header.slot;
         if self.store.next_sync_committee.is_none() {
-            warn!("skip finalized update for slot {}", end_slot);
+            warn!("skip finalized update for slot {end_slot}");
             return Ok(());
         }
         if end_slot > self.store.base_slot {
@@ -186,7 +185,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                 for slot in (stored_tip_slot + 1)..end_slot {
                     let update = self.get_finality_update(slot).await?;
                     if let Some(update) = update {
-                        debug!("store finalized update for slot {} with true in loop", slot);
+                        debug!("store finalized update for slot {slot} with true in loop");
                         self.store_finalized_update(&update, true)?;
                     }
                 }
@@ -199,7 +198,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             self.store.next_sync_committee.clone().unwrap(),
             self.store.next_sync_committee_branch.clone().unwrap(),
         );
-        debug!("store finalized update for slot {} with true", end_slot);
+        debug!("store finalized update for slot {end_slot} with true");
         self.store_finalized_update(&update, true)
     }
 
@@ -213,7 +212,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                 Ok(header) => header,
                 Err(error) => {
                     // TODO: need to fallback to another SECURE rpc to ensure the fork status
-                    warn!("beacon header is not found: {}", error);
+                    warn!("beacon header is not found: {error}");
                     Header {
                         slot: finality_update_slot,
                         ..Default::default()
@@ -242,7 +241,10 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         for update in updates {
             self.verify_update(&update)?;
             self.apply_update(&update);
-            self.store_finalized_update(&update, false)?;
+            if update.finalized_header.slot > base_slot {
+                self.store_updates_until_finality_update(&update.into())
+                    .await?;
+            }
         }
 
         let finality_update = self.rpc.get_finality_update().await?;
@@ -307,11 +309,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             .map_err(|_| eyre!("could not fetch bootstrap"))?;
 
         if bootstrap.header.slot > base_slot {
-            if let Some(stored_tip_slot) = self.storage().get_tip_beacon_header_slot()? {
-                if bootstrap.header.slot > stored_tip_slot {
-                    return Err(ConsensusError::CheckpointTooNew.into());
-                }
-            }
+            return Err(ConsensusError::CheckpointTooNew.into());
         }
 
         let is_valid = self.is_valid_checkpoint(bootstrap.header.slot);
@@ -341,6 +339,13 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         self.store.finalized_header = bootstrap.header.clone();
         self.store.current_sync_committee = bootstrap.current_sync_committee;
         self.store.optimistic_header = bootstrap.header.clone();
+
+        // force to initialize mmr storage with on-chain base slot
+        if !self.storage().is_initialized()? {
+            let header = self.rpc.get_header(base_slot).await?;
+            let update = Update::from_finalized_header(header);
+            self.store_finalized_update(&update, true)?;
+        }
 
         Ok(())
     }
