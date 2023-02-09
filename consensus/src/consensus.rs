@@ -151,7 +151,9 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                             mmr.push(digest)?;
                             mmr.commit()?;
                         } else {
-                            return Err(eyre!("tip beacon header slot should be checked"));
+                            return Err(eyre!(
+                                "tip slot should be checked: {slot} != {stored_tip_slot} + 1"
+                            ));
                         }
                     }
                 }
@@ -163,7 +165,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                     }
                 }
                 cmp::Ordering::Less => {
-                    return Err(eyre!("base beacon header slot should be checked"));
+                    return Err(eyre!("base slot should be checked: {slot} < {base_slot}"));
                 }
             }
         }
@@ -177,21 +179,23 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
     ) -> Result<()> {
         let end_slot = finality_update.finalized_header.slot;
         if self.store.next_sync_committee.is_none() {
-            warn!("skip finalized update for slot {end_slot}");
+            warn!("no committee, skip finalized update for slot {end_slot}");
             return Ok(());
         }
-        if end_slot > self.store.base_slot {
-            if let Some(stored_tip_slot) = self.storage().get_tip_beacon_header_slot()? {
-                for slot in (stored_tip_slot + 1)..end_slot {
-                    let update = self.get_finality_update(slot).await?;
-                    if let Some(update) = update {
-                        debug!("store finalized update for slot {slot} with true in loop");
-                        self.store_finalized_update(&update, true)?;
-                    }
-                }
-            } else {
-                return Err(eyre!("tip beacon header slot shouldn't be none"));
+        if let Some(stored_tip_slot) = self.storage().get_tip_beacon_header_slot()? {
+            if stored_tip_slot >= end_slot {
+                warn!("legacy udpate, skip finalized update for slot {end_slot}");
+                return Ok(());
             }
+            for slot in (stored_tip_slot + 1)..end_slot {
+                let update = self.get_finality_update(slot).await?;
+                if let Some(update) = update {
+                    debug!("store finalized update for slot {slot} with true in loop");
+                    self.store_finalized_update(&update, true)?;
+                }
+            }
+        } else {
+            return Err(eyre!("tip beacon header slot shouldn't be none"));
         }
         let update = Update::from_finality_update(
             finality_update.clone(),

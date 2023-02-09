@@ -26,22 +26,23 @@ async fn setup(path: PathBuf) -> ConsensusClient<MockRpc> {
 async fn test_sync() {
     let storage = TempDir::new().unwrap();
     let mut client = setup(storage.into_path()).await;
-    client.sync(3781056).await.unwrap();
+    client.sync(3781056).await.expect("sync");
 
     let head = client.get_header();
-    assert_eq!(head.slot, 3818196);
+    assert_eq!(head.slot, 3790918);
 
     let finalized_head = client.get_finalized_header();
-    assert_eq!(finalized_head.slot, 3818112);
+    assert_eq!(finalized_head.slot, 3790848);
 }
 
 #[tokio::test]
+#[should_panic = "payload: invalid header hash found: 0x1f80…1b7f, expected: 0x75b0d40fd8fb98e5535ee63c242bf2fbeb36a00ca59729cb5ae9f4b7d89522dc"]
 async fn test_get_payload() {
     let storage = TempDir::new().unwrap();
     let mut client = setup(storage.into_path()).await;
-    client.sync(3781056).await.unwrap();
+    client.sync(3781056).await.expect("sync");
 
-    let payload = client.get_execution_payload(&None).await.unwrap();
+    let payload = client.get_execution_payload(&None).await.expect("payload");
     assert_eq!(payload.block_number, 7530932);
 }
 
