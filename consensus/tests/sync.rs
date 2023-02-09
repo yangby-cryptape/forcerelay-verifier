@@ -56,7 +56,7 @@ async fn fetch_headers_into_testdata() {
     const STEP: u64 = 128;
 
     let mock_rpc = MockRpc::new(MOCK_RPC);
-    let updates = mock_rpc.get_updates(461, 3).await.expect("get_udpates");
+    let updates = mock_rpc.get_updates(461, 2).await.expect("get_udpates");
     let mut headers = BTreeMap::new();
     if let (Some(start), Some(end)) = (updates.first(), updates.last()) {
         let rpc = NimbusRpc::new(NIMBUS_RPC);

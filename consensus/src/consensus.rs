@@ -156,7 +156,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                     }
                 }
                 cmp::Ordering::Equal => {
-                    if storage.is_initialized()? {
+                    if !storage.is_initialized()? {
                         storage.initialize_with(slot, digest)?;
                     } else {
                         return Err(eyre!("storage should be checked"));
