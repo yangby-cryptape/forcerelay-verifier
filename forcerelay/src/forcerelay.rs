@@ -8,24 +8,21 @@ use eth_light_client_in_ckb_verification::types::{
 use ethers::types::{Transaction, TransactionReceipt};
 use eyre::Result;
 use log::debug;
-use reqwest::Url;
 
 use crate::assembler::ForcerelayAssembler;
-use crate::rpc::RpcClient;
+use crate::rpc::CkbRpc;
 
-pub struct ForcerelayClient {
-    assembler: ForcerelayAssembler,
+pub struct ForcerelayClient<R: CkbRpc> {
+    assembler: ForcerelayAssembler<R>,
 }
 
-impl ForcerelayClient {
+impl<R: CkbRpc> ForcerelayClient<R> {
     pub fn new(
-        rpc_url: &str,
+        rpc: R,
         contract_typeargs: &Vec<u8>,
         binary_typeargs: &Vec<u8>,
         client_id: &String,
     ) -> Self {
-        let url = Url::parse(rpc_url).expect("parse ckb url");
-        let rpc = RpcClient::new(&url, &url);
         let assembler =
             ForcerelayAssembler::new(rpc, contract_typeargs, binary_typeargs, client_id);
         Self { assembler }
@@ -53,4 +50,21 @@ impl ForcerelayClient {
             .assemble_tx(consensus, block, tx, receipt, all_receipts)
             .await
     }
+}
+
+#[tokio::test]
+async fn test_assemble_tx() {
+    use crate::rpc::MockRpcClient;
+
+    const CONTRACT_TYPEID_ARGS: [u8; 32] = [0u8; 32];
+    const BINARY_TYPEID_ARGS: [u8; 32] = [1u8; 32];
+
+    let rpc = MockRpcClient::default();
+    let client_id = "client_id".to_owned();
+    let forcerelay = ForcerelayClient::new(
+        rpc,
+        &CONTRACT_TYPEID_ARGS.to_vec(),
+        &BINARY_TYPEID_ARGS.to_vec(),
+        &client_id,
+    );
 }

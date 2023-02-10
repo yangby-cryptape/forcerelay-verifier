@@ -1,5 +1,6 @@
 use ckb_jsonrpc_types::Transaction as CkbTransaction;
 use ethers::utils::keccak256;
+use forcerelay::rpc::RpcClient;
 use futures::future::join_all;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -31,7 +32,7 @@ pub struct Node {
     finalized_payloads: BTreeMap<u64, ExecutionPayload>,
     pub history_size: usize,
     block_number_slots: HashMap<u64, u64>,
-    forcerelay: ForcerelayClient,
+    forcerelay: ForcerelayClient<RpcClient>,
 }
 
 impl Node {
@@ -53,8 +54,8 @@ impl Node {
         let payloads = BTreeMap::new();
         let finalized_payloads = BTreeMap::new();
         let block_number_slots = HashMap::new();
-        let forcerelay =
-            ForcerelayClient::new(ckb_rpc, contract_typeargs, binary_typeargs, client_id);
+        let rpc = RpcClient::new(ckb_rpc, ckb_rpc);
+        let forcerelay = ForcerelayClient::new(rpc, contract_typeargs, binary_typeargs, client_id);
 
         Ok(Node {
             consensus,

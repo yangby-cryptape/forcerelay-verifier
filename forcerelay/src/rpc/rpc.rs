@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use ckb_jsonrpc_types::{
     BlockNumber, BlockView, CellWithStatus, HeaderView, JsonBytes, OutPoint, OutputsValidator,
     Transaction, TransactionWithStatusResponse, Uint32,
@@ -8,20 +6,17 @@ use ckb_sdk::rpc::ckb_indexer::{Cell, Order, Pagination, SearchKey};
 use ckb_types::H256;
 use futures::FutureExt;
 use reqwest::{Client, Url};
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::errors::ForcerelayCkbError;
+use crate::rpc::rpc_trait::{CkbRpc, Rpc};
 
 #[allow(clippy::upper_case_acronyms)]
 enum Target {
     CKB,
     Indexer,
 }
-
-type Rpc<T> = Pin<Box<dyn Future<Output = Result<T, ForcerelayCkbError>> + Send + 'static>>;
 
 macro_rules! jsonrpc {
     ($method:expr, $id:expr, $self:ident, $return:ty$(, $params:ident$(,)?)*) => {{
@@ -71,28 +66,30 @@ pub struct RpcClient {
 }
 
 impl RpcClient {
-    pub fn new(ckb_uri: &Url, indexer_uri: &Url) -> Self {
+    pub fn new(ckb_uri: &str, indexer_uri: &str) -> Self {
         RpcClient {
             raw: Client::new(),
-            ckb_uri: ckb_uri.clone(),
-            indexer_uri: indexer_uri.clone(),
+            ckb_uri: Url::parse(ckb_uri).expect("ckb_uri"),
+            indexer_uri: Url::parse(indexer_uri).expect("indexer_uri"),
             id: Arc::new(AtomicU64::new(0)),
         }
     }
+}
 
-    pub fn get_block_by_number(&self, number: BlockNumber) -> Rpc<BlockView> {
+impl CkbRpc for RpcClient {
+    fn get_block_by_number(&self, number: BlockNumber) -> Rpc<BlockView> {
         jsonrpc!("get_block_by_number", Target::CKB, self, BlockView, number).boxed()
     }
 
-    pub fn get_block(&self, hash: &H256) -> Rpc<BlockView> {
+    fn get_block(&self, hash: &H256) -> Rpc<BlockView> {
         jsonrpc!("get_block", Target::CKB, self, BlockView, hash).boxed()
     }
 
-    pub fn get_tip_header(&self) -> Rpc<HeaderView> {
+    fn get_tip_header(&self) -> Rpc<HeaderView> {
         jsonrpc!("get_tip_header", Target::CKB, self, HeaderView).boxed()
     }
 
-    pub fn get_transaction(&self, hash: &H256) -> Rpc<Option<TransactionWithStatusResponse>> {
+    fn get_transaction(&self, hash: &H256) -> Rpc<Option<TransactionWithStatusResponse>> {
         jsonrpc!(
             "get_transaction",
             Target::CKB,
@@ -103,7 +100,7 @@ impl RpcClient {
         .boxed()
     }
 
-    pub fn get_live_cell(&self, out_point: &OutPoint, with_data: bool) -> Rpc<CellWithStatus> {
+    fn get_live_cell(&self, out_point: &OutPoint, with_data: bool) -> Rpc<CellWithStatus> {
         jsonrpc!(
             "get_live_cell",
             Target::CKB,
@@ -115,7 +112,7 @@ impl RpcClient {
         .boxed()
     }
 
-    pub fn send_transaction(
+    fn send_transaction(
         &self,
         tx: &Transaction,
         outputs_validator: Option<OutputsValidator>,
@@ -131,7 +128,7 @@ impl RpcClient {
         .boxed()
     }
 
-    pub fn get_txs_by_hashes(
+    fn get_txs_by_hashes(
         &self,
         hashes: Vec<H256>,
     ) -> Rpc<Vec<Option<TransactionWithStatusResponse>>> {
@@ -152,7 +149,7 @@ impl RpcClient {
         .boxed()
     }
 
-    pub fn fetch_live_cells(
+    fn fetch_live_cells(
         &self,
         search_key: SearchKey,
         limit: u32,

@@ -12,19 +12,19 @@ use eth_light_client_in_ckb_verification::types::{packed, prelude::Unpack};
 use ethers::types::{Transaction, TransactionReceipt};
 use eyre::Result;
 
-use crate::rpc::RpcClient;
+use crate::rpc::CkbRpc;
 use crate::util::*;
 
-pub struct ForcerelayAssembler {
-    rpc: RpcClient,
+pub struct ForcerelayAssembler<R: CkbRpc> {
+    rpc: R,
     contract_typeid_script: Script,
     binary_typeid_script: Script,
     lightclient_typescript: Script,
 }
 
-impl ForcerelayAssembler {
+impl<R: CkbRpc> ForcerelayAssembler<R> {
     pub fn new(
-        rpc: RpcClient,
+        rpc: R,
         contract_typeargs: &Vec<u8>,
         binary_typeargs: &Vec<u8>,
         client_id: &String,
@@ -100,8 +100,8 @@ impl ForcerelayAssembler {
     }
 }
 
-async fn prepare_onchain_data(
-    rpc: &RpcClient,
+async fn prepare_onchain_data<R: CkbRpc>(
+    rpc: &R,
     contract_script: &Script,
     binary_script: &Script,
     lightclient_script: &Script,

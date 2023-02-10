@@ -13,17 +13,17 @@ use ethers::types::{Transaction, TransactionReceipt};
 use eyre::Result;
 use storage::prelude::StorageAsMMRStore as _;
 
-use crate::rpc::RpcClient;
+use crate::rpc::CkbRpc;
 
-pub async fn search_cell(rpc: &RpcClient, typescript: &Script) -> Result<Option<LiveCell>> {
+pub async fn search_cell<R: CkbRpc>(rpc: &R, typescript: &Script) -> Result<Option<LiveCell>> {
     let search: SearchKey =
         CellQueryOptions::new(typescript.clone(), PrimaryScriptType::Type).into();
     let result = rpc.fetch_live_cells(search, 1, None).await?;
     Ok(result.objects.first().cloned().map(Into::into))
 }
 
-pub async fn search_cell_as_celldep(
-    rpc: &RpcClient,
+pub async fn search_cell_as_celldep<R: CkbRpc>(
+    rpc: &R,
     typescript: &Script,
 ) -> Result<Option<CellDep>> {
     let cell = {
