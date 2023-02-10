@@ -1,29 +1,29 @@
 {
     "attested_header": {
-        "slot": "3818190",
-        "proposer_index": "25281",
-        "parent_root": "0x1dd492af3d3032ed3860b80dd665cbe6532540f9ea0e4eab94509edde1c415fb",
-        "state_root": "0x49d23f99f6870b0c1e911cbd1fbb92adc5a7d95cb8cda1f5f0f6086ccb098324",
-        "body_root": "0xa8f89861ef4ae81125bec76fa200a28150005ab3fc5f4b58743eddfbb6c9e23b"
+        "slot": "3790918",
+        "proposer_index": "137949",
+        "parent_root": "0x69fb05df7fee0aaa6aa303e271f28daaa486fc7edb6364615ba59b0d052e7db5",
+        "state_root": "0x53264497fd8af35ac72997905892d1bc6d9acbdcbaa3ed14d4e283fced58475c",
+        "body_root": "0x9eee25bcc366af8f9e80e34f0ed988acea8a9e173949a71892ab212c0b9057fd"
     },
     "finalized_header": {
-        "slot": "3818112",
-        "proposer_index": "160102",
-        "parent_root": "0xd8621bdbaa5bf4b3947f56af917b2558bf1d3006aef58811ad80c555f0410af8",
-        "state_root": "0xcd46eb0959ebedaa6b78b270b8280981bb41205d9c604c1d9a547167286fa9d6",
-        "body_root": "0xc94f81458235e538bc6160099b8f7fdb73bce9d63a68e7def926dfcfe0427635"
+        "slot": "3790848",
+        "proposer_index": "32994",
+        "parent_root": "0xf05f1ad93dd84d060738eab45c0cb446152024111175d14d588687af2d19da9a",
+        "state_root": "0x3cffab96259db57bef466aa688798888181cf19c26d0500f42ea4dc01cef265a",
+        "body_root": "0x2a6e1496a6a18e0eff458c2a606114a944ada53cba79aab45f2f1aead7d7836f"
     },
     "finality_branch": [
-        "0x14d2010000000000000000000000000000000000000000000000000000000000",
-        "0x869277312d2050cc3a76274661a03beb3f0cbc19c75e91f2bac5505723f192c4",
-        "0x5030f60861b1b0a96f0c4804558926bc76875110374c49fce679dc12854a8313",
-        "0x1365f7a14a5b13886b5afe6e3aa0e831baacc30e26bb314392a6273b088d9b96",
-        "0xeebcbfb7a668bbe769764651ce9819be3b8c4d19ef30bd97772b106472a4df05",
-        "0x87538264f92a515e0d0706858a76ef7819d53658545a17e9648eba40bc3880fc"
+        "0xc0ce010000000000000000000000000000000000000000000000000000000000",
+        "0xfcdd7b02d7765d85a23ad7901048d92ed4892650cdb59a32f1a31c85067a321a",
+        "0xbbd30e86a184c5c1fe59d0ba509ae78fe01d092f710523fea5abf7abd2275e25",
+        "0x0b11899eccfd3016a3712def1cd0063ffa51452a685a42a16dc3645ade80558a",
+        "0x3e6bb87586603c518d1671bb421ccfba3de294bf6765ccfbe549ce93e0607c33",
+        "0x5ff45d65f04083aaa22a7b2e907c3a190c468b61a04c0aa4e71dd01f6332d3fc"
     ],
     "sync_aggregate": {
-        "sync_committee_bits": "0x7df83fd6ff5b7fdbffeb77efbfefefdfefddf8f7e5f7ffbffdfbfd5fbeefbfff8f3fff7dffdfde7c6d7f55d7fffbcfdee7cfadbd5fcbbfbde59fff637fffed7f",
-        "sync_committee_signature": "0x8f7cd24ce4d07f81319d8263a0b4cd35635ff1b476bdb5b23f4fb3677c82a895863e430f494279e75df88b493cb160460d2965f2c0c06a4ea5a9878eb318f46b73e473d923fd6b985ac66122118428e881347ee37c177e6810601952d3c225d9"
+        "sync_committee_bits": "0xeefefdfffff7effffbff3ffef7f7f6fdfedff3fb7fefeff3ffffffffefffffffbfffdeffffdfafff3fdeffffff7fbffffe7fffdffdff3f6efffffff7b6fffff7",
+        "sync_committee_signature": "0x92633d114cdff70b727ae30f4714f01231275e13f3ba2b9f9e6ca57c2b05ddd447a40ec7a5fec85ce1dc30d0849487f80ed432f8b440c8ee5924f1190f7ca412ec8168af6cdc6c51cc0a0d0b867c5b03c9141c3f94d9fe3d34da8918cc65f5a6"
     },
-    "signature_slot": "3818191"
+    "signature_slot": "3790919"
 }

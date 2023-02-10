@@ -259,6 +259,18 @@ pub struct FinalityUpdate {
     pub signature_slot: u64,
 }
 
+impl From<Update> for FinalityUpdate {
+    fn from(value: Update) -> Self {
+        Self {
+            attested_header: value.attested_header,
+            finalized_header: value.finalized_header,
+            finality_branch: value.finality_branch,
+            sync_aggregate: value.sync_aggregate,
+            signature_slot: value.signature_slot,
+        }
+    }
+}
+
 #[derive(serde::Deserialize, Debug)]
 pub struct OptimisticUpdate {
     pub attested_header: Header,
@@ -267,17 +279,26 @@ pub struct OptimisticUpdate {
     pub signature_slot: u64,
 }
 
-#[derive(serde::Deserialize, Debug, Clone, Default, SimpleSerialize)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default, SimpleSerialize)]
 pub struct Header {
-    #[serde(deserialize_with = "u64_deserialize")]
+    #[serde(deserialize_with = "u64_deserialize", serialize_with = "u64_serialize")]
     pub slot: u64,
-    #[serde(deserialize_with = "u64_deserialize")]
+    #[serde(deserialize_with = "u64_deserialize", serialize_with = "u64_serialize")]
     pub proposer_index: u64,
-    #[serde(deserialize_with = "bytes32_deserialize")]
+    #[serde(
+        deserialize_with = "bytes32_deserialize",
+        serialize_with = "bytes32_serialize"
+    )]
     pub parent_root: Bytes32,
-    #[serde(deserialize_with = "bytes32_deserialize")]
+    #[serde(
+        deserialize_with = "bytes32_deserialize",
+        serialize_with = "bytes32_serialize"
+    )]
     pub state_root: Bytes32,
-    #[serde(deserialize_with = "bytes32_deserialize")]
+    #[serde(
+        deserialize_with = "bytes32_deserialize",
+        serialize_with = "bytes32_serialize"
+    )]
     pub body_root: Bytes32,
 }
 
@@ -422,12 +443,28 @@ where
         .map_err(D::Error::custom)
 }
 
+pub fn u64_serialize<S>(n: &u64, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let s = n.to_string();
+    serializer.serialize_str(&s)
+}
+
 fn u64_deserialize<'de, D>(deserializer: D) -> Result<u64, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let val: String = serde::Deserialize::deserialize(deserializer)?;
     Ok(val.parse().unwrap())
+}
+
+fn bytes32_serialize<S>(n: &Bytes32, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let val = hex::encode(n.as_slice());
+    serializer.serialize_str(&format!("0x{val}"))
 }
 
 fn bytes32_deserialize<'de, D>(deserializer: D) -> Result<Bytes32, D::Error>
