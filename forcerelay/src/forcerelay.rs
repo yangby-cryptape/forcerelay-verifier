@@ -21,7 +21,7 @@ impl<R: CkbRpc> ForcerelayClient<R> {
         rpc: R,
         contract_typeargs: &Vec<u8>,
         binary_typeargs: &Vec<u8>,
-        client_id: &String,
+        client_id: &str,
     ) -> Self {
         let assembler =
             ForcerelayAssembler::new(rpc, contract_typeargs, binary_typeargs, client_id);
@@ -52,19 +52,81 @@ impl<R: CkbRpc> ForcerelayClient<R> {
     }
 }
 
-#[tokio::test]
-async fn test_assemble_tx() {
-    use crate::rpc::MockRpcClient;
+#[cfg(test)]
+mod test {
+    use ckb_testtool::context::Context;
+    use ethers::types::{Transaction, TransactionReceipt};
+    use eyre::Result;
+    use std::{cell::RefCell, path::PathBuf, sync::Arc};
+    use tempfile::TempDir;
 
-    const CONTRACT_TYPEID_ARGS: [u8; 32] = [0u8; 32];
-    const BINARY_TYPEID_ARGS: [u8; 32] = [1u8; 32];
+    use config::{networks, Config};
+    use consensus::types::{BeaconBlock, Header};
+    use consensus::{rpc::mock_rpc::MockRpc, ConsensusClient};
 
-    let rpc = MockRpcClient::default();
-    let client_id = "client_id".to_owned();
-    let forcerelay = ForcerelayClient::new(
-        rpc,
-        &CONTRACT_TYPEID_ARGS.to_vec(),
-        &BINARY_TYPEID_ARGS.to_vec(),
-        &client_id,
-    );
+    use crate::forcerelay::ForcerelayClient;
+    use crate::rpc::{MockRpcClient, BINARY_TYPEID_ARGS, CONTRACT_TYPEID_ARGS, TESTDATA_DIR};
+
+    async fn make_consensus(path: PathBuf, last_header: &Header) -> ConsensusClient<MockRpc> {
+        let base_config = networks::goerli();
+        let config = Config {
+            consensus_rpc: String::new(),
+            execution_rpc: String::new(),
+            chain: base_config.chain,
+            forks: base_config.forks,
+            max_checkpoint_age: u64::MAX,
+            storage_path: path,
+            ..Default::default()
+        };
+
+        let checkpoint =
+            hex::decode("7bc1d0c64d28d63ddd8150bc92bff771011acbddfa314b8288b3fe0a7b3a01cb")
+                .unwrap();
+
+        let mut client = ConsensusClient::new(TESTDATA_DIR, &checkpoint, Arc::new(config)).unwrap();
+        client.bootstrap(5763680).await.expect("bootstrap");
+        client
+            .store_updates_until_finality_update(&last_header.clone().into())
+            .await
+            .expect("until store");
+        client
+    }
+
+    fn load_json_testdata<'a, V: serde::Deserialize<'a>>(filename: &str) -> Result<V> {
+        let contents = std::fs::read(format!("{TESTDATA_DIR}{filename}"))?;
+        let static_ref = Box::leak(Box::new(contents));
+        let value: V = serde_json::from_slice(static_ref)?;
+        Ok(value)
+    }
+
+    #[tokio::test]
+    async fn test_assemble_tx() {
+        let context = Arc::new(RefCell::new(Context::default()));
+        let rpc = MockRpcClient::new(context.clone());
+        let forcerelay = ForcerelayClient::new(
+            rpc,
+            &CONTRACT_TYPEID_ARGS.to_vec(),
+            &BINARY_TYPEID_ARGS.to_vec(),
+            "client_id",
+        );
+
+        let path = TempDir::new().unwrap();
+        let headers: Vec<Header> = load_json_testdata("headers.json").expect("load headers");
+        let consensus = make_consensus(path.into_path(), headers.last().unwrap()).await;
+        let block: BeaconBlock = load_json_testdata("block.json").expect("load block");
+        let tx: Transaction = load_json_testdata("transaction.json").expect("load transaction");
+        let all_receipts: Vec<TransactionReceipt> =
+            load_json_testdata("receipts.json").expect("load receipts");
+        let receipt = all_receipts
+            .iter()
+            .find(|receipt| receipt.transaction_hash == tx.hash)
+            .cloned()
+            .expect("receipt not found");
+
+        let verifier_tx = forcerelay
+            .assemble_tx(&consensus, &block, &tx, &receipt, &all_receipts)
+            .await
+            .expect("assemble");
+        println!("tx = {verifier_tx:?}");
+    }
 }

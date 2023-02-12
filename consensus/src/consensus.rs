@@ -173,7 +173,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         Ok(())
     }
 
-    async fn store_updates_until_finality_update(
+    pub async fn store_updates_until_finality_update(
         &mut self,
         finality_update: &FinalityUpdate,
     ) -> Result<()> {
@@ -294,7 +294,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         Ok(())
     }
 
-    async fn bootstrap(&mut self, base_slot: u64) -> Result<()> {
+    pub async fn bootstrap(&mut self, base_slot: u64) -> Result<()> {
         if let Some(stored_base_slot) = self.storage().get_base_beacon_header_slot()? {
             if stored_base_slot != base_slot {
                 panic!(
@@ -661,7 +661,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             .unwrap()
             .as_secs();
 
-        let time_to_next_slot = next_slot_timestamp - now;
+        let time_to_next_slot = next_slot_timestamp.saturating_sub(now);
         let next_update = time_to_next_slot + 4;
 
         Duration::seconds(next_update as i64)
@@ -673,8 +673,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         let current_slot_timestamp = self.slot_timestamp(current_slot);
         let blockhash_slot_timestamp = self.slot_timestamp(blockhash_slot);
 
-        let slot_age = current_slot_timestamp - blockhash_slot_timestamp;
-
+        let slot_age = current_slot_timestamp.saturating_sub(blockhash_slot_timestamp);
         slot_age < self.config.max_checkpoint_age
     }
 }

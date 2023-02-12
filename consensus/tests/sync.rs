@@ -53,7 +53,8 @@ async fn fetch_headers_into_testdata() {
     use std::collections::BTreeMap;
 
     const MOCK_RPC: &str = "testdata/";
-    const NIMBUS_RPC: &str = "http://localhost:8052";
+    const EXPORT_PATH: &str = "testdata";
+    const NIMBUS_RPC: &str = "https://www.lightclientdata.org";
     const STEP: u64 = 128;
 
     let mock_rpc = MockRpc::new(MOCK_RPC);
@@ -90,5 +91,5 @@ async fn fetch_headers_into_testdata() {
         }
     }
     let contents = serde_json::to_string_pretty(&headers).expect("jsonify");
-    std::fs::write(format!("{MOCK_RPC}headers.json"), contents).expect("write fs");
+    std::fs::write(format!("{EXPORT_PATH}/headers.json"), contents).expect("write fs");
 }

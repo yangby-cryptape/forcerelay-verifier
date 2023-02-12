@@ -17,7 +17,6 @@ use crate::util::*;
 
 pub struct ForcerelayAssembler<R: CkbRpc> {
     rpc: R,
-    contract_typeid_script: Script,
     binary_typeid_script: Script,
     lightclient_typescript: Script,
 }
@@ -27,7 +26,7 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
         rpc: R,
         contract_typeargs: &Vec<u8>,
         binary_typeargs: &Vec<u8>,
-        client_id: &String,
+        client_id: &str,
     ) -> Self {
         let contract_typeid_script = Script::new_builder()
             .code_hash(TYPE_ID_CODE_HASH.0.pack())
@@ -47,7 +46,6 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
             .build();
         Self {
             rpc,
-            contract_typeid_script,
             binary_typeid_script,
             lightclient_typescript,
         }
@@ -74,15 +72,14 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
         receipt: &TransactionReceipt,
         all_receipts: &[TransactionReceipt],
     ) -> Result<TransactionView> {
-        let (contract_celldep, binary_celldep, lightclient_cell) = prepare_onchain_data(
+        let (binary_celldep, lightclient_cell) = prepare_onchain_data(
             &self.rpc,
-            &self.contract_typeid_script,
             &self.binary_typeid_script,
             &self.lightclient_typescript,
         )
         .await?;
         if packed::ClientReader::verify(&lightclient_cell.output_data, false).is_err() {
-            return Err(eyre::eyre!("unsupported lightlient data"));
+            return Err(eyre::eyre!("unsupported lightclient data"));
         }
         let client = packed::Client::new_unchecked(lightclient_cell.output_data).unpack();
         log::debug!("current onchain client {client}");
@@ -94,7 +91,7 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
             tx,
             receipt,
             &receipts,
-            &[contract_celldep, binary_celldep],
+            &binary_celldep,
             &client,
         )
     }
@@ -102,17 +99,9 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
 
 async fn prepare_onchain_data<R: CkbRpc>(
     rpc: &R,
-    contract_script: &Script,
     binary_script: &Script,
     lightclient_script: &Script,
-) -> Result<(CellDep, CellDep, LiveCell)> {
-    let contract_celldep = {
-        let celldep_opt = search_cell_as_celldep(rpc, contract_script).await?;
-        if celldep_opt.is_none() {
-            return Err(eyre::eyre!("lightClient contract not found"));
-        }
-        celldep_opt.unwrap()
-    };
+) -> Result<(CellDep, LiveCell)> {
     let binary_celldep = {
         let celldep_opt = search_cell_as_celldep(rpc, binary_script).await?;
         if celldep_opt.is_none() {
@@ -127,5 +116,5 @@ async fn prepare_onchain_data<R: CkbRpc>(
         }
         cell_opt.unwrap()
     };
-    Ok((contract_celldep, binary_celldep, lightclient_cell))
+    Ok((binary_celldep, lightclient_cell))
 }

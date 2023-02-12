@@ -3,6 +3,8 @@ use std::str::FromStr;
 
 use eth2_types::Hash256;
 use ethers::types::{Address, Filter, H256, U256};
+use execution::rpc::http_rpc::HttpRpc;
+use execution::rpc::ExecutionRpc;
 // use ssz_rs::{List, Vector};
 use ssz_types::VariableList as List;
 
@@ -221,4 +223,37 @@ async fn test_get_tx_by_block_hash_and_index() {
         .unwrap()
         .unwrap();
     assert_eq!(tx.hash(), tx_hash);
+}
+
+#[tokio::test]
+#[ignore]
+async fn fetch_block_transaction_and_receipts() {
+    const HTTP_RPC: &str = "https://eth-mainnet-public.unifra.io/";
+    const BLOCK_NUMBER: u64 = 16594788;
+    const TX_INDEX: usize = 0;
+    const EXPORT_PATH: &str = "../forcerelay/testdata";
+
+    let rpc = HttpRpc::new(HTTP_RPC).expect("http rpc");
+    let block = rpc
+        .get_block(BLOCK_NUMBER.into())
+        .await
+        .expect("block")
+        .expect("invalid block hash");
+
+    assert_eq!(block.transactions.is_empty(), false);
+    let transaction = rpc
+        .get_transaction(&block.transactions[TX_INDEX])
+        .await
+        .expect("transaction")
+        .unwrap();
+    let contents = serde_json::to_string_pretty(&transaction).expect("tx jsonify");
+    std::fs::write(format!("{EXPORT_PATH}/transaction.json"), contents).expect("write tx");
+
+    let receipts = rpc
+        .get_block_receipts(block.number.unwrap())
+        .await
+        .expect("receipts");
+    assert_eq!(receipts.len(), block.transactions.len());
+    let contents = serde_json::to_string_pretty(&receipts).expect("receipts jsonify");
+    std::fs::write(format!("{EXPORT_PATH}/receipts.json"), contents).expect("write receipts");
 }

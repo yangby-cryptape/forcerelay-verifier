@@ -248,7 +248,7 @@ impl Update {
     }
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, Debug, Clone, Default)]
 pub struct FinalityUpdate {
     pub attested_header: Header,
     pub finalized_header: Header,
@@ -267,6 +267,15 @@ impl From<Update> for FinalityUpdate {
             finality_branch: value.finality_branch,
             sync_aggregate: value.sync_aggregate,
             signature_slot: value.signature_slot,
+        }
+    }
+}
+
+impl From<Header> for FinalityUpdate {
+    fn from(value: Header) -> Self {
+        Self {
+            finalized_header: value,
+            ..Default::default()
         }
     }
 }

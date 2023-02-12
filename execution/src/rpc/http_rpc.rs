@@ -7,8 +7,8 @@ use ethers::providers::{HttpRateLimitRetryPolicy, Middleware, Provider, RetryCli
 use ethers::types::transaction::eip2718::TypedTransaction;
 use ethers::types::transaction::eip2930::AccessList;
 use ethers::types::{
-    BlockId, Bytes, EIP1186ProofResponse, Eip1559TransactionRequest, Filter, Log, Transaction,
-    TransactionReceipt, H256, U256,
+    Block, BlockId, BlockNumber, Bytes, EIP1186ProofResponse, Eip1559TransactionRequest, Filter,
+    Log, Transaction, TransactionReceipt, TxHash, H256, U256, U64,
 };
 use eyre::Result;
 
@@ -24,6 +24,24 @@ pub struct HttpRpc {
 impl Clone for HttpRpc {
     fn clone(&self) -> Self {
         Self::new(&self.url).unwrap()
+    }
+}
+
+impl HttpRpc {
+    pub async fn get_block(&self, block_number: U64) -> Result<Option<Block<TxHash>>> {
+        Ok(self
+            .provider
+            .get_block(block_number)
+            .await
+            .map_err(|e| RpcError::new("get_block", e))?)
+    }
+
+    pub async fn get_block_receipts(&self, block_number: U64) -> Result<Vec<TransactionReceipt>> {
+        Ok(self
+            .provider
+            .get_block_receipts(BlockNumber::Number(block_number))
+            .await
+            .map_err(|e| RpcError::new("get_block_receipts", e))?)
     }
 }
 

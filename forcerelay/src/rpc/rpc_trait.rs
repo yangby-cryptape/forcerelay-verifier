@@ -1,6 +1,6 @@
 use ckb_jsonrpc_types::{
     BlockNumber, BlockView, CellWithStatus, HeaderView, JsonBytes, OutPoint, OutputsValidator,
-    Transaction, TransactionWithStatusResponse,
+    Transaction, TransactionWithStatus,
 };
 use ckb_sdk::rpc::ckb_indexer::{Cell, Pagination, SearchKey};
 use ckb_types::H256;
@@ -17,14 +17,11 @@ pub trait CkbRpc {
 
     fn get_tip_header(&self) -> Rpc<HeaderView>;
 
-    fn get_transaction(&self, hash: &H256) -> Rpc<Option<TransactionWithStatusResponse>>;
+    fn get_transaction(&self, hash: &H256) -> Rpc<Option<TransactionWithStatus>>;
 
     fn get_live_cell(&self, out_point: &OutPoint, with_data: bool) -> Rpc<CellWithStatus>;
 
-    fn get_txs_by_hashes(
-        &self,
-        hashes: Vec<H256>,
-    ) -> Rpc<Vec<Option<TransactionWithStatusResponse>>>;
+    fn get_txs_by_hashes(&self, hashes: Vec<H256>) -> Rpc<Vec<Option<TransactionWithStatus>>>;
 
     fn fetch_live_cells(
         &self,
