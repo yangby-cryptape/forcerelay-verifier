@@ -66,6 +66,7 @@ mod test {
 
     use crate::forcerelay::ForcerelayClient;
     use crate::rpc::{MockRpcClient, BINARY_TYPEID_ARGS, CONTRACT_TYPEID_ARGS, TESTDATA_DIR};
+    use crate::setup_test_logger;
 
     async fn make_consensus(path: PathBuf, last_header: &Header) -> ConsensusClient<MockRpc> {
         let base_config = networks::goerli();
@@ -101,6 +102,7 @@ mod test {
 
     #[tokio::test]
     async fn test_assemble_tx() {
+        setup_test_logger();
         let context = Arc::new(RefCell::new(Context::default()));
         let rpc = MockRpcClient::new(context.clone());
         let forcerelay = ForcerelayClient::new(
