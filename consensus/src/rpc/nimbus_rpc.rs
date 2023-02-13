@@ -125,7 +125,7 @@ impl ConsensusRpc for NimbusRpc {
             .await?
             .json::<HeaderResponse::Response>()
             .await
-            .map_err(|e| eyre::eyre!(format!("{} (slot {})", e, slot)))?;
+            .map_err(|e| eyre::eyre!(format!("{e} (slot {slot})")))?;
 
         Ok(res.data.header.message)
     }

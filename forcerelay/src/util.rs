@@ -73,7 +73,7 @@ pub fn assemble_partial_verification_transaction(
     tx: &Transaction,
     receipt: &TransactionReceipt,
     receipts: &Receipts,
-    binary_celldep: &CellDep,
+    celldeps: &[CellDep],
     client: &core::Client,
 ) -> Result<TransactionView> {
     let mmr = consensus.storage().chain_root_mmr(client.maximal_slot)?;
@@ -134,7 +134,7 @@ pub fn assemble_partial_verification_transaction(
         witness_args.as_bytes()
     };
     let tx = TransactionView::new_advanced_builder()
-        .cell_dep(binary_celldep.to_owned())
+        .cell_deps(celldeps.to_owned())
         .witness(witness.pack())
         .build();
     Ok(tx)

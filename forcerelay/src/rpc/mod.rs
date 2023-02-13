@@ -1,7 +1,7 @@
-mod rpc;
+mod ckb_rpc;
 mod rpc_trait;
 
-pub use rpc::RpcClient;
+pub use ckb_rpc::RpcClient;
 pub use rpc_trait::CkbRpc;
 
 #[cfg(test)]

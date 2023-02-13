@@ -8,7 +8,7 @@ use ckb_jsonrpc_types::{
 use ckb_sdk::constants::TYPE_ID_CODE_HASH;
 use ckb_sdk::rpc::ckb_indexer::{Cell, Pagination, SearchKey};
 use ckb_testtool::context::Context;
-use ckb_types::core::ScriptHashType;
+use ckb_types::core::{Capacity, ScriptHashType};
 use ckb_types::packed::{CellOutput, Script};
 use ckb_types::{prelude::*, H256};
 
@@ -102,7 +102,11 @@ impl CkbRpc for MockRpcClient {
             // handle verify binary contract search
             let data =
                 std::fs::read(format!("{TESTDATA_DIR}lightclient/{VERIFY_BIN}")).expect("read bin");
-            live_cell.out_point = self.context().deploy_cell(data.into()).into();
+            let binary_cell = CellOutput::new_builder()
+                .type_(Some(search_script).pack())
+                .build_exact_capacity(Capacity::bytes(data.len()).unwrap())
+                .unwrap();
+            live_cell.out_point = self.context().create_cell(binary_cell, data.into()).into();
         } else if search_script.code_hash() == self.lightclient_typeid.pack() {
             // handle light client cell search
             let data = {
@@ -114,10 +118,11 @@ impl CkbRpc for MockRpcClient {
             };
             let lightclient_cell = CellOutput::new_builder()
                 .type_(Some(search_script).pack())
-                .build();
+                .build_exact_capacity(Capacity::zero())
+                .unwrap();
             let out_point = self
                 .context()
-                .create_cell(lightclient_cell.clone(), data.clone().into());
+                .create_cell(lightclient_cell, data.clone().into());
             live_cell.output_data = JsonBytes::from_vec(data);
             live_cell.out_point = out_point.into();
         } else {

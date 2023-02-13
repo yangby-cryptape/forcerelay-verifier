@@ -57,6 +57,6 @@ where
     fn put_finalized_update(&self, slot: u64, update: &Update) -> Result<()> {
         let key: packed::Uint64 = slot.pack();
         let bytes = update.clone().into_bytes().map_err(Error::storage)?;
-        self.put_cf(columns::COLUMN_FINALIZED_UPDATES, key.as_slice(), &bytes)
+        self.put_cf(columns::COLUMN_FINALIZED_UPDATES, key.as_slice(), bytes)
     }
 }

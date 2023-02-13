@@ -54,7 +54,12 @@ impl<R: CkbRpc> ForcerelayClient<R> {
 
 #[cfg(test)]
 mod test {
+    use ckb_jsonrpc_types::TransactionView as JsonTxView;
+    use ckb_testtool::builtin::ALWAYS_SUCCESS;
     use ckb_testtool::context::Context;
+    use ckb_types::core::{Capacity, ScriptHashType, TransactionView};
+    use ckb_types::packed::{CellDep, CellInput, CellOutput, Script};
+    use ckb_types::{bytes::Bytes, prelude::*};
     use ethers::types::{Transaction, TransactionReceipt};
     use eyre::Result;
     use std::{cell::RefCell, path::PathBuf, sync::Arc};
@@ -67,6 +72,8 @@ mod test {
     use crate::forcerelay::ForcerelayClient;
     use crate::rpc::{MockRpcClient, BINARY_TYPEID_ARGS, CONTRACT_TYPEID_ARGS, TESTDATA_DIR};
     use crate::setup_test_logger;
+
+    const BUSINESS_BIN: &str = "eth_light_client-mock_business_type_lock";
 
     async fn make_consensus(path: PathBuf, last_header: &Header) -> ConsensusClient<MockRpc> {
         let base_config = networks::goerli();
@@ -86,6 +93,7 @@ mod test {
 
         let mut client = ConsensusClient::new(TESTDATA_DIR, &checkpoint, Arc::new(config)).unwrap();
         client.bootstrap(5763680).await.expect("bootstrap");
+        client.default_next_sync_committee();
         client
             .store_updates_until_finality_update(&last_header.clone().into())
             .await
@@ -100,21 +108,12 @@ mod test {
         Ok(value)
     }
 
-    #[tokio::test]
-    async fn test_assemble_tx() {
-        setup_test_logger();
-        let context = Arc::new(RefCell::new(Context::default()));
-        let rpc = MockRpcClient::new(context.clone());
-        let forcerelay = ForcerelayClient::new(
-            rpc,
-            &CONTRACT_TYPEID_ARGS.to_vec(),
-            &BINARY_TYPEID_ARGS.to_vec(),
-            "client_id",
-        );
-
-        let path = TempDir::new().unwrap();
+    async fn assemble_partial_tx(
+        forcerelay: &ForcerelayClient<MockRpcClient>,
+        path: PathBuf,
+    ) -> TransactionView {
         let headers: Vec<Header> = load_json_testdata("headers.json").expect("load headers");
-        let consensus = make_consensus(path.into_path(), headers.last().unwrap()).await;
+        let consensus = make_consensus(path, headers.last().unwrap()).await;
         let block: BeaconBlock = load_json_testdata("block.json").expect("load block");
         let tx: Transaction = load_json_testdata("transaction.json").expect("load transaction");
         let all_receipts: Vec<TransactionReceipt> =
@@ -125,10 +124,100 @@ mod test {
             .cloned()
             .expect("receipt not found");
 
-        let verifier_tx = forcerelay
+        forcerelay
             .assemble_tx(&consensus, &block, &tx, &receipt, &all_receipts)
             .await
-            .expect("assemble");
-        println!("tx = {verifier_tx:?}");
+            .expect("assemble partial")
+    }
+
+    fn complete_partial_tx(
+        forcerelay: &ForcerelayClient<MockRpcClient>,
+        context: Arc<RefCell<Context>>,
+        tx: TransactionView,
+    ) -> TransactionView {
+        let mut context = context.borrow_mut();
+        // prepare always_success
+        let (always_success_lock, always_success_contract) = {
+            let out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
+            let lock = context
+                .build_script(&out_point, Default::default())
+                .unwrap();
+            let celldep = CellDep::new_builder().out_point(out_point).build();
+            (lock, celldep)
+        };
+        let mock_output = CellOutput::new_builder()
+            .lock(always_success_lock.clone())
+            .build_exact_capacity(Capacity::zero())
+            .unwrap();
+        // prepare mock business
+        let business_args = {
+            let mut data = vec![];
+            let lightclient_hash = forcerelay
+                .assembler
+                .lightclient_typescript
+                .calc_script_hash();
+            let binary_hash = forcerelay.assembler.binary_typeid_script.calc_script_hash();
+            data.append(&mut lightclient_hash.as_slice().to_vec());
+            data.append(&mut binary_hash.as_bytes().to_vec());
+            data
+        };
+        let data = std::fs::read(format!("{TESTDATA_DIR}lightclient/{BUSINESS_BIN}"))
+            .expect("read business");
+        let business_type = Script::new_builder()
+            .code_hash(CellOutput::calc_data_hash(&data))
+            .hash_type(ScriptHashType::Data1.into())
+            .args(business_args.pack())
+            .build();
+        let business_contract = CellDep::new_builder()
+            .out_point(context.deploy_cell(data.into()))
+            .build();
+        let business_cell = {
+            let cell = CellOutput::new_builder()
+                .lock(always_success_lock)
+                .type_(Some(business_type).pack())
+                .build_exact_capacity(Capacity::zero())
+                .unwrap();
+            CellInput::new_builder()
+                .previous_output(context.create_cell(cell, Default::default()))
+                .build()
+        };
+        // rebuild tx
+        let tx = tx
+            .as_advanced_builder()
+            .cell_dep(always_success_contract)
+            .cell_dep(business_contract)
+            .input(business_cell)
+            .output(mock_output)
+            .output_data(Bytes::new().pack())
+            .build();
+        context.complete_tx(tx)
+    }
+
+    #[tokio::test]
+    async fn test_assemble_tx() {
+        setup_test_logger();
+        let context = Arc::new(RefCell::new(Context::default()));
+        let forcerelay = ForcerelayClient::new(
+            MockRpcClient::new(context.clone()),
+            &CONTRACT_TYPEID_ARGS.to_vec(),
+            &BINARY_TYPEID_ARGS.to_vec(),
+            "client_id",
+        );
+
+        // generate tx
+        let path = TempDir::new().unwrap();
+        let tx = assemble_partial_tx(&forcerelay, path.into_path()).await;
+        let tx = complete_partial_tx(&forcerelay, context.clone(), tx);
+
+        // run tx
+        let cycles = context.borrow_mut().verify_tx(&tx, u64::MAX);
+        match cycles {
+            Ok(value) => println!("consume cycles: {value}"),
+            Err(error) => {
+                let json_tx = serde_json::to_string_pretty(&JsonTxView::from(tx)).unwrap();
+                println!("tx = {json_tx}");
+                panic!("{error}");
+            }
+        }
     }
 }

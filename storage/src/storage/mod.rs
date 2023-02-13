@@ -96,5 +96,5 @@ impl<S> Storage<S> {
 
 pub(crate) fn cf_handle(db: &DB, col: Column) -> Result<&ColumnFamily> {
     db.cf_handle(col)
-        .ok_or_else(|| Error::storage(format!("column {} not found", col)))
+        .ok_or_else(|| Error::storage(format!("column {col} not found")))
 }

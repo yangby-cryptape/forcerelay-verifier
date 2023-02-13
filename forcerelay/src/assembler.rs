@@ -1,14 +1,13 @@
 use ckb_sdk::constants::TYPE_ID_CODE_HASH;
-use ckb_sdk::traits::LiveCell;
 use ckb_types::core::{ScriptHashType, TransactionView};
 use ckb_types::packed::{CellDep, Script};
-use ckb_types::prelude::*;
+use ckb_types::{bytes::Bytes, prelude::*};
 use consensus::rpc::ConsensusRpc;
 use consensus::types::BeaconBlock;
 use consensus::ConsensusClient;
 use eth2_types::MainnetEthSpec;
 use eth_light_client_in_ckb_prover::{CachedBeaconBlock, Receipts};
-use eth_light_client_in_ckb_verification::types::{packed, prelude::Unpack};
+use eth_light_client_in_ckb_verification::types::{packed, prelude::Unpack as _};
 use ethers::types::{Transaction, TransactionReceipt};
 use eyre::Result;
 
@@ -17,8 +16,8 @@ use crate::util::*;
 
 pub struct ForcerelayAssembler<R: CkbRpc> {
     rpc: R,
-    binary_typeid_script: Script,
-    lightclient_typescript: Script,
+    pub binary_typeid_script: Script,
+    pub lightclient_typescript: Script,
 }
 
 impl<R: CkbRpc> ForcerelayAssembler<R> {
@@ -72,27 +71,21 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
         receipt: &TransactionReceipt,
         all_receipts: &[TransactionReceipt],
     ) -> Result<TransactionView> {
-        let (binary_celldep, lightclient_cell) = prepare_onchain_data(
+        let (celldeps, client_data) = prepare_onchain_data(
             &self.rpc,
             &self.binary_typeid_script,
             &self.lightclient_typescript,
         )
         .await?;
-        if packed::ClientReader::verify(&lightclient_cell.output_data, false).is_err() {
+        if packed::ClientReader::verify(&client_data, false).is_err() {
             return Err(eyre::eyre!("unsupported lightclient data"));
         }
-        let client = packed::Client::new_unchecked(lightclient_cell.output_data).unpack();
+        let client = packed::Client::new_unchecked(client_data).unpack();
         log::debug!("current onchain client {client}");
         let block: CachedBeaconBlock<MainnetEthSpec> = block.clone().into();
         let receipts: Receipts = all_receipts.to_owned().into();
         assemble_partial_verification_transaction(
-            consensus,
-            &block,
-            tx,
-            receipt,
-            &receipts,
-            &binary_celldep,
-            &client,
+            consensus, &block, tx, receipt, &receipts, &celldeps, &client,
         )
     }
 }
@@ -101,20 +94,26 @@ async fn prepare_onchain_data<R: CkbRpc>(
     rpc: &R,
     binary_script: &Script,
     lightclient_script: &Script,
-) -> Result<(CellDep, LiveCell)> {
+) -> Result<(Vec<CellDep>, Bytes)> {
     let binary_celldep = {
         let celldep_opt = search_cell_as_celldep(rpc, binary_script).await?;
         if celldep_opt.is_none() {
-            return Err(eyre::eyre!("lightClient binary not found"));
+            return Err(eyre::eyre!("light client binary not found"));
         }
         celldep_opt.unwrap()
     };
     let lightclient_cell = {
         let cell_opt = search_cell(rpc, lightclient_script).await?;
         if cell_opt.is_none() {
-            return Err(eyre::eyre!("lightClient cell not found"));
+            return Err(eyre::eyre!("light client cell not found"));
         }
         cell_opt.unwrap()
     };
-    Ok((binary_celldep, lightclient_cell))
+    let lightclient_celldep = CellDep::new_builder()
+        .out_point(lightclient_cell.out_point)
+        .build();
+    Ok((
+        vec![binary_celldep, lightclient_celldep],
+        lightclient_cell.output_data,
+    ))
 }

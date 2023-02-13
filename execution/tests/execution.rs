@@ -240,7 +240,7 @@ async fn fetch_block_transaction_and_receipts() {
         .expect("block")
         .expect("invalid block hash");
 
-    assert_eq!(block.transactions.is_empty(), false);
+    assert!(!block.transactions.is_empty());
     let transaction = rpc
         .get_transaction(&block.transactions[TX_INDEX])
         .await
