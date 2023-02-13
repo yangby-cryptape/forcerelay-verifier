@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fs::read_to_string, path::PathBuf};
+use std::{fs::read_to_string, path::PathBuf};
 
 use async_trait::async_trait;
 use eyre::Result;
@@ -8,17 +8,18 @@ use crate::types::{BeaconBlock, Bootstrap, FinalityUpdate, Header, OptimisticUpd
 
 pub struct MockRpc {
     testdata: PathBuf,
-    headers: BTreeMap<u64, Header>,
+    headers: Vec<Header>,
 }
 
 #[async_trait]
 impl ConsensusRpc for MockRpc {
     fn new(path: &str) -> Self {
         let testdata = PathBuf::from(path);
-        let headers = {
+        let headers: Vec<_> = {
             let value = read_to_string(testdata.join("headers.json")).expect("no headers.json");
             serde_json::from_str(&value).expect("headers jsonify")
         };
+        assert!(!headers.is_empty());
         MockRpc { testdata, headers }
     }
 
@@ -48,13 +49,19 @@ impl ConsensusRpc for MockRpc {
     }
 
     async fn get_header(&self, slot: u64) -> Result<Header> {
-        let header = self.headers.get(&slot).cloned().unwrap_or_else(|| {
-            println!("not found header {slot}, replace with empty");
-            Header {
-                slot,
-                ..Default::default()
-            }
-        });
+        let first = self.headers.first().unwrap().slot;
+        assert!(slot >= first);
+        let header = self
+            .headers
+            .get((slot - first) as usize)
+            .cloned()
+            .unwrap_or_else(|| {
+                println!("not found header {slot}, replace with empty");
+                Header {
+                    slot,
+                    ..Default::default()
+                }
+            });
         Ok(header)
     }
 }

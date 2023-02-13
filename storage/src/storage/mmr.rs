@@ -14,8 +14,7 @@ where
     fn get_elem(&self, pos: u64) -> MMRResult<Option<packed::HeaderDigest>> {
         self.get_beacon_header_digest(pos).map_err(|err| {
             MMRError::StoreError(format!(
-                "Failed to read position {} from MMR, DB error {}",
-                pos, err
+                "Failed to read position {pos} from MMR, DB error {err}"
             ))
         })
     }
@@ -24,7 +23,7 @@ where
         for (offset, elem) in elems.iter().enumerate() {
             let pos: u64 = pos + (offset as u64);
             self.put_beacon_header_digest(pos, elem).map_err(|err| {
-                MMRError::StoreError(format!("Failed to append to MMR, DB error {}", err))
+                MMRError::StoreError(format!("Failed to append to MMR, DB error {err}"))
             })?;
         }
         Ok(())

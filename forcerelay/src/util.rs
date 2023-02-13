@@ -8,22 +8,25 @@ use consensus::types::Header;
 use consensus::ConsensusClient;
 use eth2_types::{BeaconBlockHeader, Hash256, MainnetEthSpec};
 use eth_light_client_in_ckb_prover::{CachedBeaconBlock, Receipts};
-use eth_light_client_in_ckb_verification::types::{core, packed, prelude::*};
+use eth_light_client_in_ckb_verification::{
+    mmr,
+    types::{core, packed, prelude::*},
+};
 use ethers::types::{Transaction, TransactionReceipt};
 use eyre::Result;
 use storage::prelude::StorageAsMMRStore as _;
 
-use crate::rpc::RpcClient;
+use crate::rpc::CkbRpc;
 
-pub async fn search_cell(rpc: &RpcClient, typescript: &Script) -> Result<Option<LiveCell>> {
+pub async fn search_cell<R: CkbRpc>(rpc: &R, typescript: &Script) -> Result<Option<LiveCell>> {
     let search: SearchKey =
         CellQueryOptions::new(typescript.clone(), PrimaryScriptType::Type).into();
     let result = rpc.fetch_live_cells(search, 1, None).await?;
     Ok(result.objects.first().cloned().map(Into::into))
 }
 
-pub async fn search_cell_as_celldep(
-    rpc: &RpcClient,
+pub async fn search_cell_as_celldep<R: CkbRpc>(
+    rpc: &R,
     typescript: &Script,
 ) -> Result<Option<CellDep>> {
     let cell = {
@@ -75,8 +78,9 @@ pub fn assemble_partial_verification_transaction(
 ) -> Result<TransactionView> {
     let mmr = consensus.storage().chain_root_mmr(client.maximal_slot)?;
     let mmr_position = block.slot() - client.minimal_slot;
+    let mmr_index = mmr::lib::leaf_index_to_pos(mmr_position.into());
     let header_mmr_proof = mmr
-        .gen_proof(vec![mmr_position.into()])
+        .gen_proof(vec![mmr_index])
         .expect("gen mmr proof")
         .proof_items()
         .iter()

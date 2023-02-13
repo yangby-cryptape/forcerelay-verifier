@@ -8,7 +8,7 @@ use eth2_types::MainnetEthSpec;
 use eth_light_client_in_ckb_verification::types::core;
 use eyre::eyre;
 use eyre::Result;
-use log::{debug, info, trace, warn};
+use log::{debug, info, warn};
 use ssz_rs::prelude::*;
 use storage::{
     prelude::{StorageAsMMRStore as _, StorageReader as _, StorageWriter as _},
@@ -82,6 +82,11 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         })
     }
 
+    pub fn default_next_sync_committee(&mut self) {
+        self.store.next_sync_committee = Some(Default::default());
+        self.store.next_sync_committee_branch = Some(Default::default());
+    }
+
     pub fn base_slot(&self) -> u64 {
         self.store.base_slot
     }
@@ -115,7 +120,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         } else {
             let payload = match block.body().execution_payload() {
                 Ok(payload) => payload.execution_payload.clone(),
-                Err(err) => return Err(eyre!(format!("invalid execution_payload: {:?}", err))),
+                Err(err) => return Err(eyre!(format!("invalid execution_payload: {err:?}"))),
             };
             Ok(payload)
         }
@@ -130,18 +135,16 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
     }
 
     fn store_finalized_update(&self, update: &Update, update_mmr: bool) -> Result<()> {
-        trace!("store finalized update with update_mmr = {update_mmr}");
         let storage = self.storage();
         let header = &update.finalized_header;
         let slot = header.slot;
         let base_slot = self.store.base_slot;
-        storage.put_finalized_update(slot, &update)?;
+        storage.put_finalized_update(slot, update)?;
         if update_mmr {
             let header_with_cache = {
                 let header: core::Header = header.into();
                 header.calc_cache()
             };
-            debug!("update mmr with {header_with_cache} and base {base_slot}");
             let digest = header_with_cache.digest();
             match slot.cmp(&base_slot) {
                 cmp::Ordering::Greater => {
@@ -173,7 +176,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         Ok(())
     }
 
-    async fn store_updates_until_finality_update(
+    pub async fn store_updates_until_finality_update(
         &mut self,
         finality_update: &FinalityUpdate,
     ) -> Result<()> {
@@ -187,10 +190,10 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                 warn!("legacy udpate, skip finalized update for slot {end_slot}");
                 return Ok(());
             }
+            debug!("store finalized update for slot ({stored_tip_slot}, {end_slot}] with true");
             for slot in (stored_tip_slot + 1)..end_slot {
                 let update = self.get_finality_update(slot).await?;
                 if let Some(update) = update {
-                    debug!("store finalized update for slot {slot} with true in loop");
                     self.store_finalized_update(&update, true)?;
                 }
             }
@@ -202,7 +205,6 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             self.store.next_sync_committee.clone().unwrap(),
             self.store.next_sync_committee_branch.clone().unwrap(),
         );
-        debug!("store finalized update for slot {end_slot} with true");
         self.store_finalized_update(&update, true)
     }
 
@@ -211,7 +213,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         finality_update_slot: u64,
     ) -> Result<Option<Update>> {
         let mut update_opt = self.storage().get_finalized_update(finality_update_slot)?;
-        if update_opt.is_none() && finality_update_slot < self.store.finalized_header.slot {
+        if update_opt.is_none() {
             let finalized_header = match self.rpc.get_header(finality_update_slot).await {
                 Ok(header) => header,
                 Err(error) => {
@@ -294,7 +296,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         Ok(())
     }
 
-    async fn bootstrap(&mut self, base_slot: u64) -> Result<()> {
+    pub async fn bootstrap(&mut self, base_slot: u64) -> Result<()> {
         if let Some(stored_base_slot) = self.storage().get_base_beacon_header_slot()? {
             if stored_base_slot != base_slot {
                 panic!(
@@ -346,6 +348,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
 
         // force to initialize mmr storage with on-chain base slot
         if !self.storage().is_initialized()? {
+            debug!("initialize mmr stroage in bootstrap for base slot {base_slot}");
             let header = self.rpc.get_header(base_slot).await?;
             let update = Update::from_finalized_header(header);
             self.store_finalized_update(&update, true)?;
@@ -661,7 +664,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             .unwrap()
             .as_secs();
 
-        let time_to_next_slot = next_slot_timestamp - now;
+        let time_to_next_slot = next_slot_timestamp.saturating_sub(now);
         let next_update = time_to_next_slot + 4;
 
         Duration::seconds(next_update as i64)
@@ -673,8 +676,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         let current_slot_timestamp = self.slot_timestamp(current_slot);
         let blockhash_slot_timestamp = self.slot_timestamp(blockhash_slot);
 
-        let slot_age = current_slot_timestamp - blockhash_slot_timestamp;
-
+        let slot_age = current_slot_timestamp.saturating_sub(blockhash_slot_timestamp);
         slot_age < self.config.max_checkpoint_age
     }
 }
