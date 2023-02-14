@@ -1,0 +1,25 @@
+[mainnet]
+consensus_rpc = "https://www.lightclientdata.org"
+execution_rpc = "https://eth-mainnet.g.alchemy.com/v2/XXXXXX"
+rpc_port = 8545
+checkpoint = "0xa179cbd497b112acb057039601a75e2daafae994aa5f01d6e1a1d6f85e07a8ef"
+data_dir = "/home/user/.helios/mainnet"
+max_checkpoint_age = 86400
+fallback = "https://sync-mainnet.beaconcha.in"
+load_external_fallback = true
+# configs for ckb
+ckb_rpc = "https://testnet.ckbapp.dev"
+lightclient_contract_typeargs = "0xb7fcfa4ad253ddd60481bdd35331a634ff985fdb3b3fab4e1066cf97faf40315"
+lightclient_binary_typeargs = "0xeb871adf5fc97fde4b56ee8b545581147dbb8eb6fdce4fd3d51e8c3618505699"
+storage_path = "./ckb_mmr_storage"
+ckb_ibc_client_id = "ibc-ckb-1"
+
+[goerli]
+consensus_rpc = "http://testing.prater.beacon-api.nimbus.team"
+execution_rpc = "https://eth-goerli.g.alchemy.com/v2/XXXXX"
+rpc_port = 8545
+checkpoint = "0xb5c375696913865d7c0e166d87bc7c772b6210dc9edf149f4c7ddc6da0dd4495"
+data_dir = "/home/user/.helios/goerli"
+max_checkpoint_age = 86400
+fallback = "https://sync-goerli.beaconcha.in"
+load_external_fallback = true

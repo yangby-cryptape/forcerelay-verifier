@@ -53,18 +53,18 @@ pub fn header_helios_to_lighthouse(header: &Header) -> BeaconBlockHeader {
     }
 }
 
-pub fn find_receipt_index(receipt: &TransactionReceipt, receipts: &Receipts) -> u64 {
-    let mut index = 0;
+pub fn find_receipt_index(receipt: &TransactionReceipt, receipts: &Receipts) -> Option<u64> {
+    let mut index = None;
     receipts
         .original()
         .iter()
         .enumerate()
         .for_each(|(i, value)| {
-            if value.block_number == receipt.block_number {
-                index = i;
+            if value.transaction_hash == receipt.transaction_hash {
+                index = Some(i as u64);
             }
         });
-    index as u64
+    index
 }
 
 pub fn assemble_partial_verification_transaction(
@@ -86,7 +86,10 @@ pub fn assemble_partial_verification_transaction(
         .iter()
         .map(Unpack::unpack)
         .collect();
-    let transaction_index = find_receipt_index(receipt, receipts);
+    let transaction_index = match find_receipt_index(receipt, receipts) {
+        Some(index) => index,
+        None => return Err(eyre::eyre!("cannot find receipt from receipts")),
+    };
     let transaction_ssz_proof =
         block.generate_transaction_proof_for_block_body(transaction_index as usize);
     let receipt_mpt_proof = receipts.generate_proof(transaction_index as usize);

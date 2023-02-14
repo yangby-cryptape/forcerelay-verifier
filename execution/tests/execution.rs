@@ -228,7 +228,7 @@ async fn test_get_tx_by_block_hash_and_index() {
 #[tokio::test]
 #[ignore]
 async fn fetch_block_transaction_and_receipts() {
-    const HTTP_RPC: &str = "https://eth-mainnet-public.unifra.io/";
+    const HTTP_RPC: &str = "https://eth-mainnet.g.alchemy.com/v2/XXXXX/";
     const BLOCK_NUMBER: u64 = 16594788;
     const TX_INDEX: usize = 0;
     const EXPORT_PATH: &str = "../forcerelay/testdata";

@@ -63,7 +63,7 @@ pub fn mainnet() -> BaseConfig {
                 fork_version: hex_str_to_bytes("0x02000000").unwrap(),
             },
         },
-        max_checkpoint_age: 1_209_600, // 14 days
+        max_checkpoint_age: u64::MAX,
     }
 }
 
