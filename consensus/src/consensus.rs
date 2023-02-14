@@ -218,10 +218,14 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                 Ok(header) => header,
                 Err(error) => {
                     // TODO: need to fallback to another SECURE rpc to ensure the fork status
-                    warn!("beacon header is not found: {error}");
-                    Header {
-                        slot: finality_update_slot,
-                        ..Default::default()
+                    if error.to_string().contains("missing field") {
+                        warn!("beacon header is not found: {error}");
+                        Header {
+                            slot: finality_update_slot,
+                            ..Default::default()
+                        }
+                    } else {
+                        return Err(eyre!("{error}"));
                     }
                 }
             };
@@ -233,7 +237,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
 
     pub async fn sync(&mut self, base_slot: u64) -> Result<()> {
         info!(
-            "Consensus client in sync with checkpoint: 0x{}",
+            "consensus client in sync with checkpoint: 0x{}",
             hex::encode(&self.initial_checkpoint)
         );
         self.bootstrap(base_slot).await?;
@@ -472,7 +476,6 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
 
         if should_update_optimistic {
             self.store.optimistic_header = update.attested_header.clone();
-            self.log_optimistic_update(update);
         }
 
         let update_attested_period = calc_sync_period(update.attested_header.slot);
@@ -505,7 +508,6 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                 self.store.next_sync_committee = update.next_sync_committee.clone();
                 self.store.next_sync_committee_branch = update.next_sync_committee_branch.clone();
             } else if update_finalized_period == store_period + 1 {
-                info!("sync committee updated");
                 self.store.current_sync_committee = self.store.next_sync_committee.clone().unwrap();
                 self.store.next_sync_committee = update.next_sync_committee.clone();
                 self.store.next_sync_committee_branch = update.next_sync_committee_branch.clone();
@@ -516,7 +518,6 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
 
             if update_finalized_slot > self.store.finalized_header.slot {
                 self.store.finalized_header = update.finalized_header.clone().unwrap();
-                self.log_finality_update(update);
 
                 if self.store.finalized_header.slot % 32 == 0 {
                     let checkpoint_res = self.store.finalized_header.hash_tree_root();
@@ -542,43 +543,9 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         self.apply_generic_update(&update);
     }
 
-    fn log_finality_update(&self, update: &GenericUpdate) {
-        let participation =
-            get_bits(&update.sync_aggregate.sync_committee_bits) as f32 / 512_f32 * 100f32;
-        let decimals = if participation == 100.0 { 1 } else { 2 };
-        let age = self.age(self.store.finalized_header.slot);
-
-        info!(
-            "finalized slot             slot={}  confidence={:.decimals$}%  age={:02}:{:02}:{:02}:{:02}",
-            self.store.finalized_header.slot,
-            participation,
-            age.num_days(),
-            age.num_hours() % 24,
-            age.num_minutes() % 60,
-            age.num_seconds() % 60,
-        );
-    }
-
     fn apply_optimistic_update(&mut self, update: &OptimisticUpdate) {
         let update = GenericUpdate::from(update);
         self.apply_generic_update(&update);
-    }
-
-    fn log_optimistic_update(&self, update: &GenericUpdate) {
-        let participation =
-            get_bits(&update.sync_aggregate.sync_committee_bits) as f32 / 512_f32 * 100f32;
-        let decimals = if participation == 100.0 { 1 } else { 2 };
-        let age = self.age(self.store.optimistic_header.slot);
-
-        info!(
-            "updated head               slot={}  confidence={:.decimals$}%  age={:02}:{:02}:{:02}:{:02}",
-            self.store.optimistic_header.slot,
-            participation,
-            age.num_days(),
-            age.num_hours() % 24,
-            age.num_minutes() % 60,
-            age.num_seconds() % 60,
-        );
     }
 
     fn has_finality_update(&self, update: &GenericUpdate) -> bool {
@@ -626,15 +593,6 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         let fork_version = Vector::from_iter(self.config.fork_version(slot));
         let domain = compute_domain(domain_type, fork_version, genesis_root)?;
         compute_signing_root(header, domain)
-    }
-
-    fn age(&self, slot: u64) -> Duration {
-        let expected_time = self.slot_timestamp(slot);
-        let now = std::time::SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap();
-        let delay = now - std::time::Duration::from_secs(expected_time);
-        chrono::Duration::from_std(delay).unwrap()
     }
 
     pub fn expected_current_slot(&self) -> u64 {

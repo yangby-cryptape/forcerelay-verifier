@@ -21,6 +21,7 @@ use execution::rpc::{http_rpc::HttpRpc, ExecutionRpc};
 use execution::types::{CallOpts, ExecutionBlock};
 use execution::ExecutionClient;
 use forcerelay::forcerelay::ForcerelayClient;
+use log::info;
 
 use crate::errors::NodeError;
 
@@ -75,6 +76,7 @@ impl Node {
             .onchain_client()
             .await
             .map_err(NodeError::ConsensusSyncError)?;
+        info!("[STATUS] {client}");
         self.consensus
             .sync(client.minimal_slot)
             .await
