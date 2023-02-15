@@ -9,17 +9,23 @@ use std::{
 use clap::Parser;
 use common::utils::hex_str_to_bytes;
 use dirs::home_dir;
-use env_logger::Env;
+use env_logger::Builder;
 use eyre::Result;
 
 use client::{database::FileDB, Client, ClientBuilder};
 use config::{CliConfig, Config};
 use futures::executor::block_on;
-use log::info;
+use log::{info, LevelFilter};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    Builder::new()
+        .filter_module("forcerelay", LevelFilter::Trace)
+        .filter_module("consensus", LevelFilter::Trace)
+        .filter_module("execution", LevelFilter::Trace)
+        .filter_module("cli", LevelFilter::Trace)
+        .init();
+    // env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let config = get_config();
     let mut client = ClientBuilder::new().config(config).build()?;
