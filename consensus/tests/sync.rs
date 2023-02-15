@@ -26,7 +26,7 @@ async fn setup(path: PathBuf) -> ConsensusClient<MockRpc> {
 async fn test_sync() {
     let storage = TempDir::new().unwrap();
     let mut client = setup(storage.into_path()).await;
-    client.sync(3781056).await.expect("sync");
+    client.sync(3781056, u64::MAX).await.expect("sync");
 
     let head = client.get_header();
     assert_eq!(head.slot, 3790918);
@@ -40,9 +40,13 @@ async fn test_sync() {
 async fn test_get_payload() {
     let storage = TempDir::new().unwrap();
     let mut client = setup(storage.into_path()).await;
-    client.sync(3781056).await.expect("sync");
+    client.sync(3781056, u64::MAX).await.expect("sync");
 
-    let payload = client.get_execution_payload(&None).await.expect("payload");
+    let payload = client
+        .get_execution_payload(&None, true)
+        .await
+        .expect("payload")
+        .unwrap();
     assert_eq!(payload.block_number, 7530932);
 }
 
@@ -75,7 +79,7 @@ async fn fetch_headers_into_testdata() {
                 .map(|slot| (slot, rpc.get_header(slot)))
                 .collect::<Vec<_>>();
             for (slot, future) in futrues {
-                if let Ok(header) = future.await {
+                if let Ok(Some(header)) = future.await {
                     headers.insert(slot, header);
                 } else {
                     headers.insert(

@@ -32,6 +32,9 @@ pub enum NodeError {
 
     #[error(transparent)]
     BlockNotFoundError(#[from] BlockNotFoundError),
+
+    #[error("block_number {0} is out of range [{1}, {2}]")]
+    BlockNumberToSlotError(u64, u64, u64),
 }
 
 impl NodeError {

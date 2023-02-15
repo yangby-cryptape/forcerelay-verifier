@@ -101,7 +101,7 @@ impl ConsensusRpc for NimbusRpc {
         Ok(res.data)
     }
 
-    async fn get_block(&self, slot: u64) -> Result<BeaconBlock> {
+    async fn get_block(&self, slot: u64) -> Result<Option<BeaconBlock>> {
         let req = format!("{}/eth/v2/beacon/blocks/{}", self.rpc, slot);
         let res = self
             .client
@@ -113,10 +113,10 @@ impl ConsensusRpc for NimbusRpc {
             .await
             .map_err(|e| RpcError::new("blocks", e))?;
 
-        Ok(res.data.message)
+        Ok(res.block())
     }
 
-    async fn get_header(&self, slot: u64) -> Result<Header> {
+    async fn get_header(&self, slot: u64) -> Result<Option<Header>> {
         let req = format!("{}/eth/v1/beacon/headers/{}", self.rpc, slot);
         let res = self
             .client
@@ -127,13 +127,26 @@ impl ConsensusRpc for NimbusRpc {
             .await
             .map_err(|e| eyre::eyre!(format!("{e} (slot {slot})")))?;
 
-        Ok(res.data.header.message)
+        Ok(res.header())
     }
 }
 
+#[allow(unused)]
 #[derive(serde::Deserialize, Debug)]
 struct BeaconBlockResponse {
-    data: BeaconBlockData,
+    data: Option<BeaconBlockData>,
+    code: Option<u64>,
+    message: Option<String>,
+}
+
+impl BeaconBlockResponse {
+    pub fn block(self) -> Option<BeaconBlock> {
+        if let Some(data) = self.data {
+            Some(data.message)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(serde::Deserialize, Debug)]

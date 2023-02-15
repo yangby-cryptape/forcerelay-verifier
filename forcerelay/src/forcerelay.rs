@@ -6,8 +6,9 @@ use eth_light_client_in_ckb_verification::types::{
     core::Client as OnChainClient, prelude::Unpack as _,
 };
 use ethers::types::{Transaction, TransactionReceipt};
-use eyre::Result;
+use eyre::{eyre, Result};
 use log::debug;
+use storage::prelude::StorageReader;
 
 use crate::assembler::ForcerelayAssembler;
 use crate::rpc::CkbRpc;
@@ -34,8 +35,27 @@ impl<R: CkbRpc> ForcerelayClient<R> {
             debug!("current onchain client {client}");
             Ok(client)
         } else {
-            Err(eyre::eyre!("no lightclient cell deployed on ckb"))
+            Err(eyre!("no lightclient cell deployed on ckb"))
         }
+    }
+
+    pub async fn check_onchain_client_alignment(
+        &self,
+        consensus: &ConsensusClient<impl ConsensusRpc>,
+    ) -> Result<OnChainClient> {
+        let client = self.onchain_client().await?;
+        if let Some(base_slot) = consensus.storage().get_base_beacon_header_slot()? {
+            if let Some(tip_slot) = consensus.storage().get_tip_beacon_header_slot()? {
+                if client.minimal_slot == base_slot && client.maximal_slot == tip_slot {
+                    return Ok(client);
+                }
+                return Err(eyre!(
+                    "consensus storage [{base_slot}, {tip_slot}] is not aligned to onchain client [{}, {}]", 
+                    client.minimal_slot, client.maximal_slot
+                ));
+            }
+        }
+        Err(eyre!("consensus storage is not initialized"))
     }
 
     pub async fn assemble_tx(
@@ -93,9 +113,8 @@ mod test {
 
         let mut client = ConsensusClient::new(TESTDATA_DIR, &checkpoint, Arc::new(config)).unwrap();
         client.bootstrap(5763680).await.expect("bootstrap");
-        client.default_next_sync_committee();
         client
-            .store_updates_until_finality_update(&last_header.clone().into())
+            .store_updates_until_finality_update(&last_header.clone().into(), u64::MAX)
             .await
             .expect("until store");
         client

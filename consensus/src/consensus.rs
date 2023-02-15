@@ -8,7 +8,7 @@ use eth2_types::MainnetEthSpec;
 use eth_light_client_in_ckb_verification::types::core;
 use eyre::eyre;
 use eyre::Result;
-use log::{debug, info, warn};
+use log::{debug, info, trace, warn};
 use ssz_rs::prelude::*;
 use storage::{
     prelude::{StorageAsMMRStore as _, StorageReader as _, StorageWriter as _},
@@ -82,48 +82,48 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         })
     }
 
-    pub fn default_next_sync_committee(&mut self) {
-        self.store.next_sync_committee = Some(Default::default());
-        self.store.next_sync_committee_branch = Some(Default::default());
-    }
-
-    pub fn base_slot(&self) -> u64 {
-        self.store.base_slot
-    }
-
     pub fn storage(&self) -> &Storage<MainnetEthSpec> {
         &self.store.storage
     }
 
-    pub async fn get_execution_payload(&self, slot: &Option<u64>) -> Result<ExecutionPayload> {
+    pub async fn get_execution_payload(
+        &self,
+        slot: &Option<u64>,
+        strict: bool,
+    ) -> Result<Option<ExecutionPayload>> {
         let slot = slot.unwrap_or(self.store.optimistic_header.slot);
-        let block = self.rpc.get_block(slot).await?;
-        let block_hash = block.tree_hash_root();
-
-        let latest_slot = self.store.optimistic_header.slot;
-        let finalized_slot = self.store.finalized_header.slot;
-
-        let verified_block_hash = if slot == latest_slot {
-            self.store.optimistic_header.clone().hash_tree_root()?
-        } else if slot == finalized_slot {
-            self.store.finalized_header.clone().hash_tree_root()?
+        let block = if let Some(block) = self.rpc.get_block(slot).await? {
+            block
         } else {
-            return Err(ConsensusError::PayloadNotFound(slot).into());
+            return Ok(None);
         };
+        if strict {
+            let block_hash = block.tree_hash_root();
 
-        if verified_block_hash.as_bytes() != block_hash.as_bytes() {
-            Err(ConsensusError::InvalidHeaderHash(
-                block_hash.to_string(),
-                verified_block_hash.to_string(),
-            )
-            .into())
-        } else {
-            let payload = match block.body().execution_payload() {
-                Ok(payload) => payload.execution_payload.clone(),
-                Err(err) => return Err(eyre!(format!("invalid execution_payload: {err:?}"))),
+            let latest_slot = self.store.optimistic_header.slot;
+            let finalized_slot = self.store.finalized_header.slot;
+
+            let verified_block_hash = if slot == latest_slot {
+                self.store.optimistic_header.clone().hash_tree_root()?
+            } else if slot == finalized_slot {
+                self.store.finalized_header.clone().hash_tree_root()?
+            } else {
+                return Err(ConsensusError::PayloadNotFound(slot).into());
             };
-            Ok(payload)
+
+            if verified_block_hash.as_bytes() != block_hash.as_bytes() {
+                return Err(ConsensusError::InvalidHeaderHash(
+                    block_hash.to_string(),
+                    verified_block_hash.to_string(),
+                )
+                .into());
+            }
         }
+        let payload = match block.body().execution_payload() {
+            Ok(payload) => payload.execution_payload.clone(),
+            Err(err) => return Err(eyre!(format!("invalid execution_payload: {err:?}"))),
+        };
+        Ok(Some(payload))
     }
 
     pub fn get_header(&self) -> &Header {
@@ -179,33 +179,25 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
     pub async fn store_updates_until_finality_update(
         &mut self,
         finality_update: &FinalityUpdate,
+        onchain_tip_slot: u64,
     ) -> Result<()> {
-        let end_slot = finality_update.finalized_header.slot;
-        if self.store.next_sync_committee.is_none() {
-            warn!("no committee, skip finalized update for slot {end_slot}");
-            return Ok(());
-        }
+        let end_slot = std::cmp::min(finality_update.finalized_header.slot, onchain_tip_slot);
         if let Some(stored_tip_slot) = self.storage().get_tip_beacon_header_slot()? {
             if stored_tip_slot >= end_slot {
-                warn!("legacy udpate, skip finalized update for slot {end_slot}");
+                trace!("legacy udpate, skip finalized update for slot {end_slot}");
                 return Ok(());
             }
             debug!("store finalized update for slot ({stored_tip_slot}, {end_slot}] with true");
-            for slot in (stored_tip_slot + 1)..end_slot {
+            for slot in (stored_tip_slot + 1)..=end_slot {
                 let update = self.get_finality_update(slot).await?;
                 if let Some(update) = update {
                     self.store_finalized_update(&update, true)?;
                 }
             }
+            Ok(())
         } else {
-            return Err(eyre!("tip beacon header slot shouldn't be none"));
+            Err(eyre!("tip beacon header slot shouldn't be none"))
         }
-        let update = Update::from_finality_update(
-            finality_update.clone(),
-            self.store.next_sync_committee.clone().unwrap(),
-            self.store.next_sync_committee_branch.clone().unwrap(),
-        );
-        self.store_finalized_update(&update, true)
     }
 
     pub async fn get_finality_update(
@@ -215,19 +207,15 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         let mut update_opt = self.storage().get_finalized_update(finality_update_slot)?;
         if update_opt.is_none() {
             let finalized_header = match self.rpc.get_header(finality_update_slot).await {
-                Ok(header) => header,
-                Err(error) => {
-                    // TODO: need to fallback to another SECURE rpc to ensure the fork status
-                    if error.to_string().contains("missing field") {
-                        warn!("beacon header is not found: {error}");
-                        Header {
-                            slot: finality_update_slot,
-                            ..Default::default()
-                        }
-                    } else {
-                        return Err(eyre!("{error}"));
+                Ok(Some(header)) => header,
+                Ok(None) => {
+                    warn!("beacon header {finality_update_slot} is forked or skpped");
+                    Header {
+                        slot: finality_update_slot,
+                        ..Default::default()
                     }
                 }
+                Err(error) => return Err(eyre!("{error}")),
             };
             let new_update = Update::from_finalized_header(finalized_header);
             update_opt = Some(new_update);
@@ -235,7 +223,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         Ok(update_opt)
     }
 
-    pub async fn sync(&mut self, base_slot: u64) -> Result<()> {
+    pub async fn sync(&mut self, base_slot: u64, tip_slot: u64) -> Result<()> {
         info!(
             "consensus client in sync with checkpoint: 0x{}",
             hex::encode(&self.initial_checkpoint)
@@ -252,7 +240,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             self.verify_update(&update)?;
             self.apply_update(&update);
             if update.finalized_header.slot > base_slot {
-                self.store_updates_until_finality_update(&update.into())
+                self.store_updates_until_finality_update(&update.into(), tip_slot)
                     .await?;
             }
         }
@@ -260,7 +248,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         let finality_update = self.rpc.get_finality_update().await?;
         self.verify_finality_update(&finality_update)?;
         self.apply_finality_update(&finality_update);
-        self.store_updates_until_finality_update(&finality_update)
+        self.store_updates_until_finality_update(&finality_update, tip_slot)
             .await?;
 
         let optimistic_update = self.rpc.get_optimistic_update().await?;
@@ -275,7 +263,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         Ok(())
     }
 
-    pub async fn advance(&mut self) -> Result<()> {
+    pub async fn advance(&mut self, tip_slot: u64) -> Result<()> {
         let finality_update = self.rpc.get_finality_update().await?;
         self.verify_finality_update(&finality_update)?;
         self.apply_finality_update(&finality_update);
@@ -299,7 +287,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                 }
             }
         }
-        self.store_updates_until_finality_update(&finality_update)
+        self.store_updates_until_finality_update(&finality_update, tip_slot)
             .await?;
 
         Ok(())
@@ -363,7 +351,11 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         // force to initialize mmr storage with on-chain base slot
         if !self.storage().is_initialized()? {
             debug!("initialize mmr stroage in bootstrap for base slot {base_slot}");
-            let header = self.rpc.get_header(base_slot).await?;
+            let header = self
+                .rpc
+                .get_header(base_slot)
+                .await?
+                .expect("forked or skipped base slot");
             let update = Update::from_finalized_header(header);
             self.store_finalized_update(&update, true)?;
         }
@@ -832,7 +824,7 @@ mod tests {
     async fn test_verify_finality() {
         let storage = TempDir::new().unwrap();
         let mut client = get_client(false, storage.into_path()).await;
-        client.sync(3781056).await.unwrap();
+        client.sync(3781056, u64::MAX).await.unwrap();
 
         let update = client.rpc.get_finality_update().await.unwrap();
 
@@ -843,7 +835,7 @@ mod tests {
     async fn test_verify_finality_invalid_finality() {
         let storage = TempDir::new().unwrap();
         let mut client = get_client(false, storage.into_path()).await;
-        client.sync(3781056).await.unwrap();
+        client.sync(3781056, u64::MAX).await.unwrap();
 
         let mut update = client.rpc.get_finality_update().await.unwrap();
         update.finalized_header = Header::default();
@@ -859,7 +851,7 @@ mod tests {
     async fn test_verify_finality_invalid_sig() {
         let storage = TempDir::new().unwrap();
         let mut client = get_client(false, storage.into_path()).await;
-        client.sync(3781056).await.unwrap();
+        client.sync(3781056, u64::MAX).await.unwrap();
 
         let mut update = client.rpc.get_finality_update().await.unwrap();
         update.sync_aggregate.sync_committee_signature = Vector::default();
@@ -875,7 +867,7 @@ mod tests {
     async fn test_verify_optimistic() {
         let storage = TempDir::new().unwrap();
         let mut client = get_client(false, storage.into_path()).await;
-        client.sync(3781056).await.unwrap();
+        client.sync(3781056, u64::MAX).await.unwrap();
 
         let update = client.rpc.get_optimistic_update().await.unwrap();
         client.verify_optimistic_update(&update).unwrap();
@@ -885,7 +877,7 @@ mod tests {
     async fn test_verify_optimistic_invalid_sig() {
         let storage = TempDir::new().unwrap();
         let mut client = get_client(false, storage.into_path()).await;
-        client.sync(3781056).await.unwrap();
+        client.sync(3781056, u64::MAX).await.unwrap();
 
         let mut update = client.rpc.get_optimistic_update().await.unwrap();
         update.sync_aggregate.sync_committee_signature = Vector::default();

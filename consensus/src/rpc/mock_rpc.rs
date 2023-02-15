@@ -43,12 +43,12 @@ impl ConsensusRpc for MockRpc {
         Ok(serde_json::from_str(&optimistic)?)
     }
 
-    async fn get_block(&self, _slot: u64) -> Result<BeaconBlock> {
+    async fn get_block(&self, _slot: u64) -> Result<Option<BeaconBlock>> {
         let block = read_to_string(self.testdata.join("blocks.json"))?;
-        Ok(serde_json::from_str(&block)?)
+        Ok(Some(serde_json::from_str(&block)?))
     }
 
-    async fn get_header(&self, slot: u64) -> Result<Header> {
+    async fn get_header(&self, slot: u64) -> Result<Option<Header>> {
         let first = self.headers.first().unwrap().slot;
         assert!(slot >= first);
         let header = self
@@ -62,6 +62,6 @@ impl ConsensusRpc for MockRpc {
                     ..Default::default()
                 }
             });
-        Ok(header)
+        Ok(Some(header))
     }
 }

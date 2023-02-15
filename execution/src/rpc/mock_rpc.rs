@@ -3,8 +3,8 @@ use std::{fs::read_to_string, path::PathBuf};
 use async_trait::async_trait;
 use common::utils::hex_str_to_bytes;
 use ethers::types::{
-    transaction::eip2930::AccessList, Address, EIP1186ProofResponse, Filter, Log, Transaction,
-    TransactionReceipt, H256,
+    transaction::eip2930::AccessList, Address, Block, EIP1186ProofResponse, Filter, Log,
+    Transaction, TransactionReceipt, TxHash, H256,
 };
 use eyre::{eyre, Result};
 
@@ -60,5 +60,13 @@ impl ExecutionRpc for MockRpc {
     async fn get_logs(&self, _filter: &Filter) -> Result<Vec<Log>> {
         let logs = read_to_string(self.path.join("logs.json"))?;
         Ok(serde_json::from_str(&logs)?)
+    }
+
+    async fn get_block(&self, _block_number: u64) -> Result<Option<Block<TxHash>>> {
+        Err(eyre!("not implemented"))
+    }
+
+    async fn get_block_receipts(&self, _block_number: u64) -> Result<Vec<TransactionReceipt>> {
+        Err(eyre!("not implemented"))
     }
 }

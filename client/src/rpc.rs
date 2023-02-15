@@ -321,7 +321,7 @@ impl ForcerelayRpcServer for RpcInner {
         &self,
         hash: &str,
     ) -> Result<Option<CkbTransaction>, Error> {
-        let node = self.node.read().await;
+        let mut node = self.node.write().await;
         let hash = H256::from_slice(&convert_err(hex_str_to_bytes(hash))?);
         let ckb_transaction = convert_err(node.get_ckb_transaction_by_hash(&hash).await)?;
         Ok(ckb_transaction)
