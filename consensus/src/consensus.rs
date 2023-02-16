@@ -232,7 +232,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
 
     pub async fn sync(&mut self, base_slot: u64, tip_slot: u64) -> Result<()> {
         info!(
-            "consensus client in sync with checkpoint: 0x{}",
+            "consensus client sync with checkpoint: 0x{}",
             hex::encode(&self.initial_checkpoint)
         );
         self.bootstrap(base_slot).await?;
@@ -268,6 +268,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
     }
 
     pub async fn advance(&mut self, tip_slot: u64) -> Result<bool> {
+        let previous_finality_slot = self.get_finalized_header().slot;
         let finality_update = self.rpc.get_finality_update().await?;
         self.verify_finality_update(&finality_update)?;
         self.apply_finality_update(&finality_update);
@@ -298,7 +299,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             info!("consensus client has moved tip_slot to {tip_slot}");
             self.store.tip_slot = tip_slot;
         }
-        Ok(finality_update.finalized_header.slot < self.get_finalized_header().slot)
+        Ok(previous_finality_slot < self.get_finalized_header().slot)
     }
 
     pub async fn bootstrap(&mut self, base_slot: u64) -> Result<()> {

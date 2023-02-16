@@ -1,10 +1,5 @@
-use std::{
-    fs,
-    path::PathBuf,
-    process::exit,
-    str::FromStr,
-    sync::{Arc, Mutex},
-};
+use std::process::exit;
+use std::sync::{Arc, Mutex};
 
 use clap::Parser;
 use common::utils::hex_str_to_bytes;
@@ -12,7 +7,7 @@ use dirs::home_dir;
 use env_logger::Builder;
 use eyre::Result;
 
-use client::{database::FileDB, Client, ClientBuilder};
+use client::{Client, ClientBuilder};
 use config::{CliConfig, Config};
 use futures::executor::block_on;
 use log::{info, LevelFilter};
@@ -25,7 +20,6 @@ async fn main() -> Result<()> {
         .filter_module("execution", LevelFilter::Trace)
         .filter_module("cli", LevelFilter::Trace)
         .init();
-    // env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let config = get_config();
     let mut client = ClientBuilder::new().config(config).build()?;
@@ -36,7 +30,7 @@ async fn main() -> Result<()> {
     std::future::pending().await
 }
 
-fn register_shutdown_handler(client: Client<FileDB>) {
+fn register_shutdown_handler(client: Client) {
     let client = Arc::new(client);
     let shutdown_counter = Arc::new(Mutex::new(0));
 
@@ -89,8 +83,6 @@ struct Cli {
     execution_rpc: Option<String>,
     #[clap(short, long, env)]
     consensus_rpc: Option<String>,
-    #[clap(short, long, env)]
-    data_dir: Option<String>,
     #[clap(short = 'f', long, env)]
     fallback: Option<String>,
     #[clap(short = 'l', long, env)]
@@ -101,45 +93,19 @@ struct Cli {
 
 impl Cli {
     fn as_cli_config(&self) -> CliConfig {
-        let checkpoint = match &self.checkpoint {
-            Some(checkpoint) => Some(hex_str_to_bytes(checkpoint).expect("invalid checkpoint")),
-            None => self.get_cached_checkpoint(),
-        };
+        let checkpoint = self
+            .checkpoint
+            .as_ref()
+            .map(|value| hex_str_to_bytes(value).expect("invalid checkpoint"));
 
         CliConfig {
             checkpoint,
             execution_rpc: self.execution_rpc.clone(),
             consensus_rpc: self.consensus_rpc.clone(),
-            data_dir: self.get_data_dir(),
             rpc_port: self.rpc_port,
             fallback: self.fallback.clone(),
             load_external_fallback: self.load_external_fallback,
             strict_checkpoint_age: self.strict_checkpoint_age,
-        }
-    }
-
-    fn get_cached_checkpoint(&self) -> Option<Vec<u8>> {
-        let data_dir = self.get_data_dir();
-        let checkpoint_file = data_dir.join("checkpoint");
-
-        if checkpoint_file.exists() {
-            let checkpoint_res = fs::read(checkpoint_file);
-            match checkpoint_res {
-                Ok(checkpoint) => Some(checkpoint),
-                Err(_) => None,
-            }
-        } else {
-            None
-        }
-    }
-
-    fn get_data_dir(&self) -> PathBuf {
-        if let Some(dir) = &self.data_dir {
-            PathBuf::from_str(dir).expect("cannot find data dir")
-        } else {
-            home_dir()
-                .unwrap()
-                .join(format!(".helios/data/{}", self.network))
         }
     }
 }

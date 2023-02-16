@@ -27,7 +27,6 @@ pub struct Config {
         serialize_with = "bytes_serialize"
     )]
     pub checkpoint: Vec<u8>,
-    pub data_dir: Option<PathBuf>,
     pub storage_path: PathBuf,
     pub chain: ChainConfig,
     pub forks: Forks,

@@ -1,5 +1,6 @@
 use ckb_jsonrpc_types::Transaction as CkbTransaction;
 use forcerelay::rpc::RpcClient;
+use futures::TryFutureExt;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -68,7 +69,18 @@ impl Node {
         })
     }
 
-    fn print_status_log(&self, onchain_log: &str) -> Result<(), NodeError> {
+    pub async fn print_status_log(&self, onchain_log: Option<String>) -> Result<(), NodeError> {
+        let onchain_log = match onchain_log {
+            Some(log) => log,
+            None => {
+                let client = self
+                    .forcerelay
+                    .onchain_client()
+                    .map_err(NodeError::ForcerelayError)
+                    .await?;
+                client.to_string()
+            }
+        };
         let mut log = format!("[STATUS] onchain client: {onchain_log}, native client: ");
         let slot_range = self
             .consensus
@@ -88,8 +100,8 @@ impl Node {
             .forcerelay
             .onchain_client()
             .await
-            .map_err(NodeError::ConsensusSyncError)?;
-        self.print_status_log(&client.to_string())?;
+            .map_err(NodeError::ForcerelayError)?;
+        self.print_status_log(Some(client.to_string())).await?;
         self.consensus
             .sync(client.minimal_slot, client.maximal_slot)
             .await
@@ -103,14 +115,14 @@ impl Node {
             .forcerelay
             .onchain_client()
             .await
-            .map_err(NodeError::ConsensusSyncError)?;
+            .map_err(NodeError::ForcerelayError)?;
         let new_finality = self
             .consensus
             .advance(client.maximal_slot)
             .await
             .map_err(NodeError::ConsensusAdvanceError)?;
         if new_finality {
-            self.print_status_log(&client.to_string())?;
+            self.print_status_log(Some(client.to_string())).await?;
         }
         self.update_block_number_slots(client.maximal_slot).await?;
         self.update_payloads().await

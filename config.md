@@ -15,9 +15,6 @@ rpc_port = 8545
 # The latest checkpoint. This should be a trusted checkpoint that is no greater than ~2 weeks old.
 # If you are unsure what checkpoint to use, you can skip this option and set either `load_external_fallback` or `fallback` values (described below) to fetch a checkpoint. Though this is not recommended and less secure.
 checkpoint = "0x85e6151a246e8fdba36db27a0c7678a575346272fe978c9281e13a8b26cdfa68"
-# The directory to store the checkpoint database in. If not provided, Helios will use "~/.helios/data/mainnet", where `mainnet` is the network.
-# It is recommended to set this directory to a persistent location mapped to a fast storage device.
-data_dir = "/home/user/.helios/mainnet"
 # The maximum age of a checkpoint in seconds. If the checkpoint is older than this, Helios will attempt to fetch a new checkpoint.
 max_checkpoint_age = 86400
 # A checkpoint fallback is used if no checkpoint is provided or the given checkpoint is too old.
@@ -37,9 +34,6 @@ rpc_port = 8545
 # The latest checkpoint. This should be a trusted checkpoint that is no greater than ~2 weeks old.
 # If you are unsure what checkpoint to use, you can skip this option and set either `load_external_fallback` or `fallback` values (described below) to fetch a checkpoint. Though this is not recommended and less secure.
 checkpoint = "0xb5c375696913865d7c0e166d87bc7c772b6210dc9edf149f4c7ddc6da0dd4495"
-# The directory to store the checkpoint database in. If not provided, Helios will use "~/.helios/data/goerli", where `goerli` is the network.
-# It is recommended to set this directory to a persistent location mapped to a fast storage device.
-data_dir = "/home/user/.helios/goerli"
 # The maximum age of a checkpoint in seconds. If the checkpoint is older than this, Helios will attempt to fetch a new checkpoint.
 max_checkpoint_age = 86400
 # A checkpoint fallback is used if no checkpoint is provided or the given checkpoint is too old.
@@ -63,8 +57,6 @@ All configuration options below are available on a per-network level, where netw
 - `rpc_port` - The port to run the JSON-RPC server on. By default, Helios will use port 8545.
 
 - `checkpoint` - The latest checkpoint. This should be a trusted checkpoint that is no greater than ~2 weeks old. If you are unsure what checkpoint to use, you can skip this option and set either `load_external_fallback` or `fallback` values (described below) to fetch a checkpoint. Though this is not recommended and less secure.
-
-- `data_dir` - The directory to store the checkpoint database in. If not provided, Helios will use "~/.helios/data/<NETWORK>", where `<NETWORK>` is the network. It is recommended to set this directory to a persistent location mapped to a fast storage device.
 
 - `max_checkpoint_age` - The maximum age of a checkpoint in seconds. If the checkpoint is older than this, Helios will attempt to fetch a new checkpoint.
 

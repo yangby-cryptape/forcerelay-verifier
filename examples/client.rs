@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use eyre::Result;
 
 use helios::prelude::*;
@@ -24,9 +22,6 @@ async fn main() -> Result<()> {
 
     // Set the rpc port
     builder = builder.rpc_port(8545);
-
-    // Set the data dir
-    builder = builder.data_dir(PathBuf::from("/tmp/helios"));
 
     // Set the fallback service
     builder = builder.fallback("https://sync-mainnet.beaconcha.in");

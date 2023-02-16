@@ -81,7 +81,6 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
             return Err(eyre::eyre!("unsupported lightclient data"));
         }
         let client = packed::Client::new_unchecked(client_data).unpack();
-        log::debug!("current onchain client {client}");
         let block: CachedBeaconBlock<MainnetEthSpec> = block.clone().into();
         let receipts: Receipts = all_receipts.to_owned().into();
         assemble_partial_verification_transaction(

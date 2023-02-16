@@ -323,7 +323,10 @@ impl ForcerelayRpcServer for RpcInner {
     ) -> Result<Option<CkbTransaction>, Error> {
         let mut node = self.node.write().await;
         let hash = H256::from_slice(&convert_err(hex_str_to_bytes(hash))?);
-        let ckb_transaction = convert_err(node.get_ckb_transaction_by_hash(&hash).await)?;
+        let ckb_transaction = node
+            .get_ckb_transaction_by_hash(&hash)
+            .await
+            .map_err(|e| Error::Custom(format!("error on tx_hash {hash}: {e}")))?;
         Ok(ckb_transaction)
     }
 }

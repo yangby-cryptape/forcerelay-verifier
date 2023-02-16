@@ -30,6 +30,9 @@ pub enum NodeError {
     #[error("consensus sync error: {0}")]
     ConsensusSyncError(Report),
 
+    #[error("forcerelay error: {0}")]
+    ForcerelayError(Report),
+
     #[error(transparent)]
     BlockNotFoundError(#[from] BlockNotFoundError),
 
