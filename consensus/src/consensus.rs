@@ -40,7 +40,6 @@ pub struct ConsensusClient<R: ConsensusRpc> {
 
 struct LightClientStore {
     base_slot: u64,
-    tip_slot: u64,
     finalized_header: Header,
     current_sync_committee: SyncCommittee,
     next_sync_committee: Option<SyncCommittee>,
@@ -64,7 +63,6 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
 
         let store = LightClientStore {
             base_slot: 0,
-            tip_slot: 0,
             finalized_header: Default::default(),
             current_sync_committee: Default::default(),
             next_sync_committee: None,
@@ -187,9 +185,8 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
     pub async fn store_updates_until_finality_update(
         &mut self,
         finality_update: &FinalityUpdate,
-        tip_slot: u64,
     ) -> Result<()> {
-        let end_slot = std::cmp::min(finality_update.finalized_header.slot, tip_slot);
+        let end_slot = finality_update.finalized_header.slot;
         if let Some(stored_tip_slot) = self.storage().get_tip_beacon_header_slot()? {
             if stored_tip_slot >= end_slot {
                 return Ok(());
@@ -230,7 +227,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         Ok(update_opt)
     }
 
-    pub async fn sync(&mut self, base_slot: u64, tip_slot: u64) -> Result<()> {
+    pub async fn sync(&mut self, base_slot: u64) -> Result<()> {
         info!(
             "consensus client sync with checkpoint: 0x{}",
             hex::encode(&self.initial_checkpoint)
@@ -247,7 +244,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             self.verify_update(&update)?;
             self.apply_update(&update);
             if update.finalized_header.slot > base_slot {
-                self.store_updates_until_finality_update(&update.into(), tip_slot)
+                self.store_updates_until_finality_update(&update.into())
                     .await?;
             }
         }
@@ -255,19 +252,21 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         let finality_update = self.rpc.get_finality_update().await?;
         self.verify_finality_update(&finality_update)?;
         self.apply_finality_update(&finality_update);
-        self.store_updates_until_finality_update(&finality_update, tip_slot)
+        self.store_updates_until_finality_update(&finality_update)
             .await?;
 
         let optimistic_update = self.rpc.get_optimistic_update().await?;
         self.verify_optimistic_update(&optimistic_update)?;
         self.apply_optimistic_update(&optimistic_update);
 
-        self.store.tip_slot = tip_slot;
-        info!("consensus client has already synced with slots [{base_slot}, {tip_slot}]");
+        info!(
+            "consensus client has already synced with slots [{base_slot}, {}]",
+            self.get_finalized_header().slot
+        );
         Ok(())
     }
 
-    pub async fn advance(&mut self, tip_slot: u64) -> Result<bool> {
+    pub async fn advance(&mut self) -> Result<bool> {
         let previous_finality_slot = self.get_finalized_header().slot;
         let finality_update = self.rpc.get_finality_update().await?;
         self.verify_finality_update(&finality_update)?;
@@ -292,13 +291,9 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                 }
             }
         }
-        self.store_updates_until_finality_update(&finality_update, tip_slot)
+        self.store_updates_until_finality_update(&finality_update)
             .await?;
 
-        if tip_slot > self.store.tip_slot {
-            info!("consensus client has moved tip_slot to {tip_slot}");
-            self.store.tip_slot = tip_slot;
-        }
         Ok(previous_finality_slot < self.get_finalized_header().slot)
     }
 
@@ -833,7 +828,7 @@ mod tests {
     async fn test_verify_finality() {
         let storage = TempDir::new().unwrap();
         let mut client = get_client(false, storage.into_path()).await;
-        client.sync(3781056, u64::MAX).await.unwrap();
+        client.sync(3781056).await.unwrap();
 
         let update = client.rpc.get_finality_update().await.unwrap();
 
@@ -844,7 +839,7 @@ mod tests {
     async fn test_verify_finality_invalid_finality() {
         let storage = TempDir::new().unwrap();
         let mut client = get_client(false, storage.into_path()).await;
-        client.sync(3781056, u64::MAX).await.unwrap();
+        client.sync(3781056).await.unwrap();
 
         let mut update = client.rpc.get_finality_update().await.unwrap();
         update.finalized_header = Header::default();
@@ -860,7 +855,7 @@ mod tests {
     async fn test_verify_finality_invalid_sig() {
         let storage = TempDir::new().unwrap();
         let mut client = get_client(false, storage.into_path()).await;
-        client.sync(3781056, u64::MAX).await.unwrap();
+        client.sync(3781056).await.unwrap();
 
         let mut update = client.rpc.get_finality_update().await.unwrap();
         update.sync_aggregate.sync_committee_signature = Vector::default();
@@ -876,7 +871,7 @@ mod tests {
     async fn test_verify_optimistic() {
         let storage = TempDir::new().unwrap();
         let mut client = get_client(false, storage.into_path()).await;
-        client.sync(3781056, u64::MAX).await.unwrap();
+        client.sync(3781056).await.unwrap();
 
         let update = client.rpc.get_optimistic_update().await.unwrap();
         client.verify_optimistic_update(&update).unwrap();
@@ -886,7 +881,7 @@ mod tests {
     async fn test_verify_optimistic_invalid_sig() {
         let storage = TempDir::new().unwrap();
         let mut client = get_client(false, storage.into_path()).await;
-        client.sync(3781056, u64::MAX).await.unwrap();
+        client.sync(3781056).await.unwrap();
 
         let mut update = client.rpc.get_optimistic_update().await.unwrap();
         update.sync_aggregate.sync_committee_signature = Vector::default();

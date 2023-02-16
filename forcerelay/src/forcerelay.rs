@@ -111,7 +111,7 @@ mod test {
         let mut client = ConsensusClient::new(TESTDATA_DIR, &checkpoint, Arc::new(config)).unwrap();
         client.bootstrap(5763680).await.expect("bootstrap");
         client
-            .store_updates_until_finality_update(&last_header.clone().into(), u64::MAX)
+            .store_updates_until_finality_update(&last_header.clone().into())
             .await
             .expect("until store");
         client

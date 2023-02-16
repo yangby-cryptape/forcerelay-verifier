@@ -103,7 +103,7 @@ impl Node {
             .map_err(NodeError::ForcerelayError)?;
         self.print_status_log(Some(client.to_string())).await?;
         self.consensus
-            .sync(client.minimal_slot, client.maximal_slot)
+            .sync(client.minimal_slot)
             .await
             .map_err(NodeError::ConsensusSyncError)?;
         self.update_block_number_slots(client.minimal_slot).await?;
@@ -118,7 +118,7 @@ impl Node {
             .map_err(NodeError::ForcerelayError)?;
         let new_finality = self
             .consensus
-            .advance(client.maximal_slot)
+            .advance()
             .await
             .map_err(NodeError::ConsensusAdvanceError)?;
         if new_finality {
