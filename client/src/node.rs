@@ -68,13 +68,28 @@ impl Node {
         })
     }
 
+    fn print_status_log(&self, onchain_log: &str) -> Result<(), NodeError> {
+        let mut log = format!("[STATUS] onchain client: {onchain_log}, native client: ");
+        let slot_range = self
+            .consensus
+            .storage_slot_range()
+            .map_err(NodeError::ConsensusSyncError)?;
+        if let (Some(base_slot), Some(tip_slot)) = slot_range {
+            log += &format!("[{base_slot}, {tip_slot}]");
+        } else {
+            log += "None";
+        }
+        info!("{log}");
+        Ok(())
+    }
+
     pub async fn sync(&mut self) -> Result<(), NodeError> {
         let client = self
             .forcerelay
             .onchain_client()
             .await
             .map_err(NodeError::ConsensusSyncError)?;
-        info!("[STATUS] {client}");
+        self.print_status_log(&client.to_string())?;
         self.consensus
             .sync(client.minimal_slot, client.maximal_slot)
             .await
@@ -89,10 +104,14 @@ impl Node {
             .onchain_client()
             .await
             .map_err(NodeError::ConsensusSyncError)?;
-        self.consensus
+        let new_finality = self
+            .consensus
             .advance(client.maximal_slot)
             .await
             .map_err(NodeError::ConsensusAdvanceError)?;
+        if new_finality {
+            self.print_status_log(&client.to_string())?;
+        }
         self.update_block_number_slots(client.maximal_slot).await?;
         self.update_payloads().await
     }

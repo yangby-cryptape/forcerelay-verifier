@@ -7,7 +7,6 @@ use eth_light_client_in_ckb_verification::types::{
 };
 use ethers::types::{Transaction, TransactionReceipt};
 use eyre::{eyre, Result};
-use log::debug;
 use storage::prelude::StorageReader;
 
 use crate::assembler::ForcerelayAssembler;
@@ -31,9 +30,7 @@ impl<R: CkbRpc> ForcerelayClient<R> {
 
     pub async fn onchain_client(&self) -> Result<OnChainClient> {
         if let Some(packed_client) = self.assembler.fetch_onchain_packed_client().await? {
-            let client = packed_client.unpack();
-            debug!("current onchain client {client}");
-            Ok(client)
+            Ok(packed_client.unpack())
         } else {
             Err(eyre!("no lightclient cell deployed on ckb"))
         }

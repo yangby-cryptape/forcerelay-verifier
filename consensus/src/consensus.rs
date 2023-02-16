@@ -8,7 +8,7 @@ use eth2_types::MainnetEthSpec;
 use eth_light_client_in_ckb_verification::types::core;
 use eyre::eyre;
 use eyre::Result;
-use log::{debug, info, trace, warn};
+use log::{debug, info, warn};
 use ssz_rs::prelude::*;
 use storage::{
     prelude::{StorageAsMMRStore as _, StorageReader as _, StorageWriter as _},
@@ -40,6 +40,7 @@ pub struct ConsensusClient<R: ConsensusRpc> {
 
 struct LightClientStore {
     base_slot: u64,
+    tip_slot: u64,
     finalized_header: Header,
     current_sync_committee: SyncCommittee,
     next_sync_committee: Option<SyncCommittee>,
@@ -63,6 +64,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
 
         let store = LightClientStore {
             base_slot: 0,
+            tip_slot: 0,
             finalized_header: Default::default(),
             current_sync_committee: Default::default(),
             next_sync_committee: None,
@@ -84,6 +86,12 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
 
     pub fn storage(&self) -> &Storage<MainnetEthSpec> {
         &self.store.storage
+    }
+
+    pub fn storage_slot_range(&self) -> Result<(Option<u64>, Option<u64>)> {
+        let base_slot = self.storage().get_base_beacon_header_slot()?;
+        let tip_slot = self.storage().get_tip_beacon_header_slot()?;
+        Ok((base_slot, tip_slot))
     }
 
     pub async fn get_execution_payload(
@@ -179,12 +187,11 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
     pub async fn store_updates_until_finality_update(
         &mut self,
         finality_update: &FinalityUpdate,
-        onchain_tip_slot: u64,
+        tip_slot: u64,
     ) -> Result<()> {
-        let end_slot = std::cmp::min(finality_update.finalized_header.slot, onchain_tip_slot);
+        let end_slot = std::cmp::min(finality_update.finalized_header.slot, tip_slot);
         if let Some(stored_tip_slot) = self.storage().get_tip_beacon_header_slot()? {
             if stored_tip_slot >= end_slot {
-                trace!("legacy udpate, skip finalized update for slot {end_slot}");
                 return Ok(());
             }
             debug!("store finalized update for slot ({stored_tip_slot}, {end_slot}] with true");
@@ -209,7 +216,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             let finalized_header = match self.rpc.get_header(finality_update_slot).await {
                 Ok(Some(header)) => header,
                 Ok(None) => {
-                    warn!("beacon header {finality_update_slot} is forked or skpped");
+                    warn!("beacon header {finality_update_slot} is forked or skipped");
                     Header {
                         slot: finality_update_slot,
                         ..Default::default()
@@ -255,15 +262,12 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         self.verify_optimistic_update(&optimistic_update)?;
         self.apply_optimistic_update(&optimistic_update);
 
-        info!(
-            "consensus client in sync with checkpoint: 0x{}",
-            hex::encode(&self.initial_checkpoint)
-        );
-
+        self.store.tip_slot = tip_slot;
+        info!("consensus client has already synced with slots [{base_slot}, {tip_slot}]");
         Ok(())
     }
 
-    pub async fn advance(&mut self, tip_slot: u64) -> Result<()> {
+    pub async fn advance(&mut self, tip_slot: u64) -> Result<bool> {
         let finality_update = self.rpc.get_finality_update().await?;
         self.verify_finality_update(&finality_update)?;
         self.apply_finality_update(&finality_update);
@@ -290,7 +294,11 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         self.store_updates_until_finality_update(&finality_update, tip_slot)
             .await?;
 
-        Ok(())
+        if tip_slot > self.store.tip_slot {
+            info!("consensus client has moved tip_slot to {tip_slot}");
+            self.store.tip_slot = tip_slot;
+        }
+        Ok(finality_update.finalized_header.slot < self.get_finalized_header().slot)
     }
 
     pub async fn bootstrap(&mut self, base_slot: u64) -> Result<()> {

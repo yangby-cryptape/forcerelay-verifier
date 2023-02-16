@@ -293,13 +293,7 @@ impl Client<FileDB> {
 
 impl<DB: Database> Client<DB> {
     pub async fn start(&mut self) -> Result<()> {
-        if let Some(rpc) = &mut self.rpc {
-            rpc.start().await?;
-        }
-
-        let sync_res = self.node.write().await.sync().await;
-
-        if let Err(err) = sync_res {
+        if let Err(err) = self.node.write().await.sync().await {
             match err {
                 NodeError::ConsensusSyncError(err) => match err.downcast_ref().unwrap() {
                     ConsensusError::CheckpointTooOld => {
@@ -320,6 +314,10 @@ impl<DB: Database> Client<DB> {
                 },
                 _ => return Err(err.into()),
             }
+        }
+
+        if let Some(rpc) = &mut self.rpc {
+            rpc.start().await?;
         }
 
         let node = self.node.clone();

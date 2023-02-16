@@ -329,7 +329,7 @@ impl ForcerelayRpcServer for RpcInner {
 }
 
 async fn start(rpc: RpcInner) -> Result<(HttpServerHandle, SocketAddr)> {
-    let addr = format!("127.0.0.1:{}", rpc.port);
+    let addr = format!("0.0.0.0:{}", rpc.port);
     let server = HttpServerBuilder::default().build(addr).await?;
 
     let addr = server.local_addr()?;
