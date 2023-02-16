@@ -1,8 +1,7 @@
 use ckb_jsonrpc_types::Transaction as CkbTransaction;
-use ethers::utils::keccak256;
 use forcerelay::rpc::RpcClient;
-use futures::future::join_all;
-use std::collections::{BTreeMap, HashMap};
+use futures::TryFutureExt;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -32,7 +31,7 @@ pub struct Node {
     payloads: BTreeMap<u64, ExecutionPayload>,
     finalized_payloads: BTreeMap<u64, ExecutionPayload>,
     pub history_size: usize,
-    block_number_slots: HashMap<u64, u64>,
+    block_number_slots: BTreeMap<u64, u64>,
     forcerelay: ForcerelayClient<RpcClient>,
 }
 
@@ -54,7 +53,7 @@ impl Node {
 
         let payloads = BTreeMap::new();
         let finalized_payloads = BTreeMap::new();
-        let block_number_slots = HashMap::new();
+        let block_number_slots = BTreeMap::new();
         let rpc = RpcClient::new(ckb_rpc, ckb_rpc);
         let forcerelay = ForcerelayClient::new(rpc, contract_typeargs, binary_typeargs, client_id);
 
@@ -70,27 +69,62 @@ impl Node {
         })
     }
 
+    pub async fn print_status_log(&self, onchain_log: Option<String>) -> Result<(), NodeError> {
+        let onchain_log = match onchain_log {
+            Some(log) => log,
+            None => {
+                let client = self
+                    .forcerelay
+                    .onchain_client()
+                    .map_err(NodeError::ForcerelayError)
+                    .await?;
+                client.to_string()
+            }
+        };
+        let mut log = format!("[STATUS] onchain client: {onchain_log}, native client: ");
+        let slot_range = self
+            .consensus
+            .storage_slot_range()
+            .map_err(NodeError::ConsensusSyncError)?;
+        if let (Some(base_slot), Some(tip_slot)) = slot_range {
+            log += &format!("[{base_slot}, {tip_slot}]");
+        } else {
+            log += "None";
+        }
+        info!("{log}");
+        Ok(())
+    }
+
     pub async fn sync(&mut self) -> Result<(), NodeError> {
         let client = self
             .forcerelay
             .onchain_client()
             .await
-            .map_err(NodeError::ConsensusSyncError)?;
-        info!("[STATUS] {client}");
+            .map_err(NodeError::ForcerelayError)?;
+        self.print_status_log(Some(client.to_string())).await?;
         self.consensus
             .sync(client.minimal_slot)
             .await
             .map_err(NodeError::ConsensusSyncError)?;
-        self.update_number_slots().await?;
+        self.update_block_number_slots(client.minimal_slot).await?;
         self.update_payloads().await
     }
 
     pub async fn advance(&mut self) -> Result<(), NodeError> {
-        self.consensus
+        let client = self
+            .forcerelay
+            .onchain_client()
+            .await
+            .map_err(NodeError::ForcerelayError)?;
+        let new_finality = self
+            .consensus
             .advance()
             .await
             .map_err(NodeError::ConsensusAdvanceError)?;
-        self.update_number_slots().await?;
+        if new_finality {
+            self.print_status_log(Some(client.to_string())).await?;
+        }
+        self.update_block_number_slots(client.maximal_slot).await?;
         self.update_payloads().await
     }
 
@@ -101,33 +135,75 @@ impl Node {
             .unwrap()
     }
 
-    async fn update_number_slots(&mut self) -> Result<(), NodeError> {
-        let finalized_header = self.consensus.get_finalized_header();
-        let finalized_payload = self
-            .consensus
-            .get_execution_payload(&Some(finalized_header.slot))
-            .await
-            .map_err(NodeError::ConsensusPayloadError)?;
+    async fn update_block_number_slots(&mut self, slot: u64) -> Result<Option<u64>, NodeError> {
+        if let Some(block_number) = self.block_number_slots.get(&slot) {
+            Ok(Some(*block_number))
+        } else {
+            let payload = self
+                .consensus
+                .get_execution_payload(&Some(slot), false)
+                .await
+                .map_err(NodeError::ConsensusPayloadError)?;
+            if let Some(payload) = payload {
+                self.block_number_slots.insert(payload.block_number, slot);
+                Ok(Some(payload.block_number))
+            } else {
+                Ok(None)
+            }
+        }
+    }
 
-        self.block_number_slots
-            .insert(finalized_payload.block_number, finalized_header.slot);
-        Ok(())
+    async fn get_slot_by_block_number(&mut self, block_number: u64) -> Result<u64, NodeError> {
+        if let Some(slot) = self.block_number_slots.get(&block_number) {
+            Ok(*slot)
+        } else {
+            if self.block_number_slots.is_empty() {
+                return Ok(0);
+            }
+            let ((minimal_block_number, minimal_slot), (maximal_block_number, _)) = (
+                self.block_number_slots.first_key_value().unwrap(),
+                self.block_number_slots.last_key_value().unwrap(),
+            );
+            if block_number < *minimal_block_number || block_number > *maximal_block_number {
+                return Err(NodeError::BlockNumberToSlotError(
+                    block_number,
+                    *minimal_block_number,
+                    *maximal_block_number,
+                ));
+            }
+            let mut try_block_number = *minimal_block_number;
+            let mut try_slot = *minimal_slot;
+            while block_number > try_block_number {
+                try_slot += block_number - try_block_number;
+                loop {
+                    if let Some(value) = self.update_block_number_slots(try_slot).await? {
+                        try_block_number = value;
+                        break;
+                    } else {
+                        try_slot += 1;
+                    }
+                }
+            }
+            Ok(try_slot)
+        }
     }
 
     async fn update_payloads(&mut self) -> Result<(), NodeError> {
         let latest_header = self.consensus.get_header();
         let latest_payload = self
             .consensus
-            .get_execution_payload(&Some(latest_header.slot))
+            .get_execution_payload(&Some(latest_header.slot), true)
             .await
-            .map_err(NodeError::ConsensusPayloadError)?;
+            .map_err(NodeError::ConsensusPayloadError)?
+            .expect("latest execution payload");
 
         let finalized_header = self.consensus.get_finalized_header();
         let finalized_payload = self
             .consensus
-            .get_execution_payload(&Some(finalized_header.slot))
+            .get_execution_payload(&Some(finalized_header.slot), true)
             .await
-            .map_err(NodeError::ConsensusPayloadError)?;
+            .map_err(NodeError::ConsensusPayloadError)?
+            .expect("finalized execution payload");
 
         self.payloads
             .insert(latest_payload.block_number, latest_payload);
@@ -326,7 +402,7 @@ impl Node {
 
     // assemble ckb transaction by ethereum hash which refers to the IBC transaction
     pub async fn get_ckb_transaction_by_hash(
-        &self,
+        &mut self,
         tx_hash: &H256,
     ) -> Result<Option<CkbTransaction>> {
         let eth_transaction = match self.execution.rpc.get_transaction(tx_hash).await? {
@@ -338,44 +414,31 @@ impl Node {
             None => return Ok(None),
         };
         let mut slot = 0;
-        let mut eth_receipts = None;
+        let mut all_receipts = vec![];
         if let Some(block_number) = eth_transaction.block_number {
-            if let Some(eth_slot) = self.block_number_slots.get(&block_number.as_u64()) {
-                slot = *eth_slot;
-            }
-            match self.payloads.get(&block_number.as_u64()) {
-                Some(payload) => {
-                    let tx_hashes = payload
-                        .transactions
-                        .iter()
-                        .map(|tx| H256::from_slice(&keccak256(tx.to_vec())))
-                        .collect::<Vec<_>>();
-                    let receipts_fut = tx_hashes.into_iter().map(|hash| async move {
-                        let receipt = self.execution.rpc.get_transaction_receipt(&hash).await;
-                        receipt?.ok_or(eyre::eyre!("not reachable"))
-                    });
-
-                    let receipts = join_all(receipts_fut).await;
-                    eth_receipts = Some(receipts.into_iter().collect::<Result<Vec<_>>>()?);
-                }
-                None => return Ok(None),
-            }
+            slot = self.get_slot_by_block_number(block_number.as_u64()).await?;
+            let mut receipts = self
+                .execution
+                .rpc
+                .get_block_receipts(block_number.as_u64())
+                .await?;
+            all_receipts.append(&mut receipts);
         }
-        if slot > 0 && eth_receipts.is_some() {
-            let block = self.consensus.rpc.get_block(slot).await?;
+        if slot > 0 && !all_receipts.is_empty() {
+            let block = match self.consensus.rpc.get_block(slot).await? {
+                Some(block) => block,
+                None => return Err(eyre!("block {slot} forked or skipped")),
+            };
             let client = self
                 .forcerelay
-                .onchain_client()
-                .await
-                .map_err(NodeError::ConsensusSyncError)?;
-            if self.consensus.base_slot() != client.minimal_slot {
-                panic!("the light-client cell was re-deployed, the base slot was changed");
-            }
-            if slot < client.minimal_slot {
-                return Err(eyre::eyre!("the block is old than the client"));
-            }
-            if slot > client.maximal_slot {
-                return Err(eyre::eyre!("the block is new than the client"));
+                .check_onchain_client_alignment(&self.consensus)
+                .await?;
+            if slot < client.minimal_slot || slot > client.maximal_slot {
+                return Err(eyre::eyre!(
+                    "block {slot} is not in the range of [{}, {}]",
+                    client.minimal_slot,
+                    client.maximal_slot
+                ));
             }
             let ckb_transaction = self
                 .forcerelay
@@ -384,7 +447,7 @@ impl Node {
                     &block,
                     &eth_transaction,
                     &eth_receipt,
-                    &eth_receipts.unwrap(),
+                    &all_receipts,
                 )
                 .await?;
             return Ok(Some(ckb_transaction.data().into()));

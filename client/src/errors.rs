@@ -30,8 +30,14 @@ pub enum NodeError {
     #[error("consensus sync error: {0}")]
     ConsensusSyncError(Report),
 
+    #[error("forcerelay error: {0}")]
+    ForcerelayError(Report),
+
     #[error(transparent)]
     BlockNotFoundError(#[from] BlockNotFoundError),
+
+    #[error("block_number {0} is out of range [{1}, {2}]")]
+    BlockNumberToSlotError(u64, u64, u64),
 }
 
 impl NodeError {

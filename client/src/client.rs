@@ -16,7 +16,6 @@ use tokio::spawn;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
-use crate::database::{Database, FileDB};
 use crate::errors::NodeError;
 use crate::node::Node;
 use crate::rpc::Rpc;
@@ -32,8 +31,6 @@ pub struct ClientBuilder {
     ibc_client_id: Option<String>,
     checkpoint: Option<Vec<u8>>,
     rpc_port: Option<u16>,
-    data_dir: Option<PathBuf>,
-    // TODO `storage_path` should be merged into `data_dir`
     storage_path: Option<PathBuf>,
     config: Option<Config>,
     fallback: Option<String>,
@@ -97,11 +94,6 @@ impl ClientBuilder {
         self
     }
 
-    pub fn data_dir(mut self, data_dir: PathBuf) -> Self {
-        self.data_dir = Some(data_dir);
-        self
-    }
-
     pub fn storage_path(mut self, storage_path: PathBuf) -> Self {
         self.storage_path = Some(storage_path);
         self
@@ -127,7 +119,7 @@ impl ClientBuilder {
         self
     }
 
-    pub fn build(self) -> Result<Client<FileDB>> {
+    pub fn build(self) -> Result<Client> {
         let base_config = if let Some(network) = self.network {
             network.to_base_config()
         } else {
@@ -203,14 +195,6 @@ impl ClientBuilder {
             None
         };
 
-        let data_dir = if self.data_dir.is_some() {
-            self.data_dir
-        } else if let Some(config) = &self.config {
-            config.data_dir.clone()
-        } else {
-            None
-        };
-
         let storage_path = self.storage_path.unwrap_or_else(|| {
             self.config
                 .as_ref()
@@ -248,7 +232,6 @@ impl ClientBuilder {
             ckb_ibc_client_id: client_id,
             checkpoint,
             rpc_port,
-            data_dir,
             storage_path,
             chain: base_config.chain,
             forks: base_config.forks,
@@ -262,44 +245,32 @@ impl ClientBuilder {
     }
 }
 
-pub struct Client<DB: Database> {
+pub struct Client {
     node: Arc<RwLock<Node>>,
     rpc: Option<Rpc>,
-    db: Option<DB>,
     fallback: Option<String>,
     load_external_fallback: bool,
 }
 
-impl Client<FileDB> {
+impl Client {
     fn new(config: Config) -> Result<Self> {
         let config = Arc::new(config);
         let node = Node::new(config.clone())?;
         let node = Arc::new(RwLock::new(node));
-
         let rpc = config.rpc_port.map(|port| Rpc::new(node.clone(), port));
-
-        let data_dir = config.data_dir.clone();
-        let db = data_dir.map(FileDB::new);
 
         Ok(Client {
             node,
             rpc,
-            db,
             fallback: config.fallback.clone(),
             load_external_fallback: config.load_external_fallback,
         })
     }
 }
 
-impl<DB: Database> Client<DB> {
+impl Client {
     pub async fn start(&mut self) -> Result<()> {
-        if let Some(rpc) = &mut self.rpc {
-            rpc.start().await?;
-        }
-
-        let sync_res = self.node.write().await.sync().await;
-
-        if let Err(err) = sync_res {
+        if let Err(err) = self.node.write().await.sync().await {
             match err {
                 NodeError::ConsensusSyncError(err) => match err.downcast_ref().unwrap() {
                     ConsensusError::CheckpointTooOld => {
@@ -320,6 +291,10 @@ impl<DB: Database> Client<DB> {
                 },
                 _ => return Err(err.into()),
             }
+        }
+
+        if let Some(rpc) = &mut self.rpc {
+            rpc.start().await?;
         }
 
         let node = self.node.clone();
@@ -408,18 +383,12 @@ impl<DB: Database> Client<DB> {
     }
 
     pub async fn shutdown(&self) {
-        let node = self.node.read().await;
-        let checkpoint = if let Some(checkpoint) = node.get_last_checkpoint() {
-            checkpoint
-        } else {
-            return;
-        };
-
-        info!("saving last checkpoint hash");
-        let res = self.db.as_ref().map(|db| db.save_checkpoint(checkpoint));
-        if res.is_some() && res.unwrap().is_err() {
-            warn!("checkpoint save failed");
-        }
+        self.node
+            .read()
+            .await
+            .print_status_log(None)
+            .await
+            .expect("shutdown");
     }
 
     pub async fn call(&self, opts: &CallOpts, block: BlockTag) -> Result<Vec<u8>> {

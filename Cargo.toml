@@ -71,10 +71,6 @@ path = "examples/config.rs"
 ######################################
 
 [[bench]]
-name = "file_db"
-harness = false
-
-[[bench]]
 name = "get_balance"
 harness = false
 

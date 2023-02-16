@@ -235,7 +235,7 @@ async fn fetch_block_transaction_and_receipts() {
 
     let rpc = HttpRpc::new(HTTP_RPC).expect("http rpc");
     let block = rpc
-        .get_block(BLOCK_NUMBER.into())
+        .get_block(BLOCK_NUMBER)
         .await
         .expect("block")
         .expect("invalid block hash");
@@ -250,7 +250,7 @@ async fn fetch_block_transaction_and_receipts() {
     std::fs::write(format!("{EXPORT_PATH}/transaction.json"), contents).expect("write tx");
 
     let receipts = rpc
-        .get_block_receipts(block.number.unwrap())
+        .get_block_receipts(block.number.unwrap().as_u64())
         .await
         .expect("receipts");
     assert_eq!(receipts.len(), block.transactions.len());

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::collections::HashMap;
 
 use figment::{providers::Serialized, value::Value};
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,6 @@ pub struct CliConfig {
     pub consensus_rpc: Option<String>,
     pub checkpoint: Option<Vec<u8>>,
     pub rpc_port: Option<u16>,
-    pub data_dir: PathBuf,
     pub fallback: Option<String>,
     pub load_external_fallback: bool,
     pub strict_checkpoint_age: bool,
@@ -35,8 +34,6 @@ impl CliConfig {
         if let Some(port) = self.rpc_port {
             user_dict.insert("rpc_port", Value::from(port));
         }
-
-        user_dict.insert("data_dir", Value::from(self.data_dir.to_str().unwrap()));
 
         if let Some(fallback) = &self.fallback {
             user_dict.insert("fallback", Value::from(fallback.clone()));

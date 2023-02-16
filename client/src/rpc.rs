@@ -321,15 +321,18 @@ impl ForcerelayRpcServer for RpcInner {
         &self,
         hash: &str,
     ) -> Result<Option<CkbTransaction>, Error> {
-        let node = self.node.read().await;
+        let mut node = self.node.write().await;
         let hash = H256::from_slice(&convert_err(hex_str_to_bytes(hash))?);
-        let ckb_transaction = convert_err(node.get_ckb_transaction_by_hash(&hash).await)?;
+        let ckb_transaction = node
+            .get_ckb_transaction_by_hash(&hash)
+            .await
+            .map_err(|e| Error::Custom(format!("error on tx_hash {hash}: {e}")))?;
         Ok(ckb_transaction)
     }
 }
 
 async fn start(rpc: RpcInner) -> Result<(HttpServerHandle, SocketAddr)> {
-    let addr = format!("127.0.0.1:{}", rpc.port);
+    let addr = format!("0.0.0.0:{}", rpc.port);
     let server = HttpServerBuilder::default().build(addr).await?;
 
     let addr = server.local_addr()?;
