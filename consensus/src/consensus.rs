@@ -19,7 +19,7 @@ use common::types::*;
 use common::utils::*;
 use config::Config;
 
-use crate::constants::{MAX_REQUEST_LIGHT_CLIENT_UPDATES, MAX_REQUEST_RPC_UPDATES};
+use crate::constants::{MAX_REQUEST_LIGHT_CLIENT_UPDATES, MAX_REQUEST_RPC_UPDATES, MAX_RPC_RETRY};
 use crate::errors::ConsensusError;
 
 use super::rpc::ConsensusRpc;
@@ -231,7 +231,15 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
     }
 
     pub async fn get_finality_update(&self, finality_update_slot: u64) -> Result<Update> {
-        let finalized_header = match self.rpc.get_header(finality_update_slot).await {
+        let mut retry = 0;
+        let finalized_header = loop {
+            let finalized_header = self.rpc.get_header(finality_update_slot).await;
+            if finalized_header.is_ok() || retry < MAX_RPC_RETRY {
+                break finalized_header;
+            }
+            retry += 1;
+        };
+        let finalized_header = match finalized_header {
             Ok(Some(header)) => header,
             Ok(None) => {
                 warn!("beacon header {finality_update_slot} is forked or skipped");
