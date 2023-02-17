@@ -272,8 +272,8 @@ impl Client {
     pub async fn start(&mut self) -> Result<()> {
         if let Err(err) = self.node.write().await.sync().await {
             match err {
-                NodeError::ConsensusSyncError(err) => match err.downcast_ref().unwrap() {
-                    ConsensusError::CheckpointTooOld => {
+                NodeError::ConsensusSyncError(err) => match err.downcast_ref() {
+                    Some(ConsensusError::CheckpointTooOld) => {
                         warn!(
                             "failed to sync consensus node with checkpoint: 0x{}",
                             hex::encode(&self.node.read().await.config.checkpoint),
