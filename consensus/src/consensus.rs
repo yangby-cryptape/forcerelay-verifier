@@ -205,6 +205,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             futures::future::join_all(tasks).await.into_iter().collect();
         let updates = updates?;
         self.store_finalized_update_batch(&updates)?;
+        info!("headers from {} to {} are synced", start_slot, end_slot);
         Ok(())
     }
 
