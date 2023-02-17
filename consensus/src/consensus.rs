@@ -5,9 +5,8 @@ use std::time::UNIX_EPOCH;
 use blst::min_pk::PublicKey;
 use chrono::Duration;
 use eth2_types::MainnetEthSpec;
-use eth_light_client_in_ckb_verification::types::core;
-use eyre::eyre;
-use eyre::Result;
+use eth_light_client_in_ckb_verification::{mmr::ClientRootMMR, types::core};
+use eyre::{eyre, Result};
 use log::{debug, info, warn};
 use ssz_rs::prelude::*;
 use storage::{
@@ -20,7 +19,7 @@ use common::types::*;
 use common::utils::*;
 use config::Config;
 
-use crate::constants::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
+use crate::constants::{MAX_REQUEST_LIGHT_CLIENT_UPDATES, MAX_REQUEST_RPC_UPDATES};
 use crate::errors::ConsensusError;
 
 use super::rpc::ConsensusRpc;
@@ -140,35 +139,48 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         &self.store.finalized_header
     }
 
-    fn store_finalized_update(&self, update: &Update, update_mmr: bool) -> Result<()> {
+    fn store_finalized_update_batch(&self, updates: &[Update]) -> Result<()> {
         let storage = self.storage();
-        let header = &update.finalized_header;
-        let slot = header.slot;
+        let mut stored_tip_slot = match storage.get_tip_beacon_header_slot()? {
+            Some(slot) => slot,
+            None => {
+                if storage.is_initialized()? {
+                    return Err(eyre!("empty stored tip header slot"));
+                }
+                0
+            }
+        };
         let base_slot = self.store.base_slot;
-        storage.put_finalized_update(slot, update)?;
-        if update_mmr {
+        let mut storage_mmr: Option<ClientRootMMR<_>> = None;
+        for update in updates {
+            let header = &update.finalized_header;
             let header_with_cache = {
                 let header: core::Header = header.into();
                 header.calc_cache()
             };
+            let slot = header.slot;
             let digest = header_with_cache.digest();
             match slot.cmp(&base_slot) {
                 cmp::Ordering::Greater => {
-                    if let Some(stored_tip_slot) = storage.get_tip_beacon_header_slot()? {
-                        if stored_tip_slot + 1 == slot {
+                    if stored_tip_slot + 1 == slot {
+                        if let Some(mmr) = storage_mmr.as_mut() {
+                            mmr.push(digest)?;
+                        } else {
                             let mut mmr = storage.chain_root_mmr(stored_tip_slot)?;
                             mmr.push(digest)?;
-                            mmr.commit()?;
-                        } else {
-                            return Err(eyre!(
-                                "tip slot should be checked: {slot} != {stored_tip_slot} + 1"
-                            ));
+                            storage_mmr = Some(mmr);
                         }
+                        stored_tip_slot = slot;
+                    } else {
+                        return Err(eyre!(
+                            "tip slot should be checked: {slot} != {stored_tip_slot} + 1"
+                        ));
                     }
                 }
                 cmp::Ordering::Equal => {
                     if !storage.is_initialized()? {
                         storage.initialize_with(slot, digest)?;
+                        stored_tip_slot = slot;
                     } else {
                         return Err(eyre!("storage should be checked"));
                     }
@@ -178,7 +190,24 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                 }
             }
         }
-        storage.put_tip_beacon_header_slot(slot)?;
+        storage.put_tip_beacon_header_slot(stored_tip_slot)?;
+        if let Some(mmr) = storage_mmr {
+            mmr.commit()?;
+        }
+        Ok(())
+    }
+
+    async fn store_updates_from_rpc(&mut self, start_slot: u64, end_slot: u64) -> Result<()> {
+        let mut futures = vec![];
+        for slot in start_slot..=end_slot {
+            let update = self.get_finality_update(slot);
+            futures.push(update);
+        }
+        let mut updates = vec![];
+        for future in futures {
+            updates.push(future.await?);
+        }
+        self.store_finalized_update_batch(&updates)?;
         Ok(())
     }
 
@@ -191,40 +220,33 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             if stored_tip_slot >= end_slot {
                 return Ok(());
             }
-            debug!("store finalized update for slot ({stored_tip_slot}, {end_slot}] with true");
-            for slot in (stored_tip_slot + 1)..=end_slot {
-                let update = self.get_finality_update(slot).await?;
-                if let Some(update) = update {
-                    self.store_finalized_update(&update, true)?;
-                }
+            debug!("store finalized update for slots ({stored_tip_slot}, {end_slot}]");
+            let mut slot_pointer = stored_tip_slot + 1;
+            while slot_pointer + MAX_REQUEST_RPC_UPDATES < end_slot {
+                self.store_updates_from_rpc(slot_pointer, slot_pointer + MAX_REQUEST_RPC_UPDATES)
+                    .await?;
+                slot_pointer += MAX_REQUEST_RPC_UPDATES + 1;
             }
-            Ok(())
+            self.store_updates_from_rpc(slot_pointer, end_slot).await
         } else {
             Err(eyre!("tip beacon header slot shouldn't be none"))
         }
     }
 
-    pub async fn get_finality_update(
-        &mut self,
-        finality_update_slot: u64,
-    ) -> Result<Option<Update>> {
-        let mut update_opt = self.storage().get_finalized_update(finality_update_slot)?;
-        if update_opt.is_none() {
-            let finalized_header = match self.rpc.get_header(finality_update_slot).await {
-                Ok(Some(header)) => header,
-                Ok(None) => {
-                    warn!("beacon header {finality_update_slot} is forked or skipped");
-                    Header {
-                        slot: finality_update_slot,
-                        ..Default::default()
-                    }
+    pub async fn get_finality_update(&self, finality_update_slot: u64) -> Result<Update> {
+        let finalized_header = match self.rpc.get_header(finality_update_slot).await {
+            Ok(Some(header)) => header,
+            Ok(None) => {
+                warn!("beacon header {finality_update_slot} is forked or skipped");
+                Header {
+                    slot: finality_update_slot,
+                    ..Default::default()
                 }
-                Err(error) => return Err(eyre!("{error}")),
-            };
-            let new_update = Update::from_finalized_header(finalized_header);
-            update_opt = Some(new_update);
-        }
-        Ok(update_opt)
+            }
+            Err(error) => return Err(eyre!("{error}")),
+        };
+        let update = Update::from_finalized_header(finalized_header);
+        Ok(update)
     }
 
     pub async fn sync(&mut self, base_slot: u64) -> Result<()> {
@@ -361,7 +383,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
                 .await?
                 .expect("forked or skipped base slot");
             let update = Update::from_finalized_header(header);
-            self.store_finalized_update(&update, true)?;
+            self.store_finalized_update_batch(&[update])?;
         }
 
         Ok(())
