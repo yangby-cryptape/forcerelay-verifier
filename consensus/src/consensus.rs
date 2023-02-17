@@ -198,15 +198,12 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
     }
 
     async fn store_updates_from_rpc(&mut self, start_slot: u64, end_slot: u64) -> Result<()> {
-        let mut futures = vec![];
-        for slot in start_slot..=end_slot {
-            let update = self.get_finality_update(slot);
-            futures.push(update);
-        }
-        let mut updates = vec![];
-        for future in futures {
-            updates.push(future.await?);
-        }
+        let tasks: Vec<_> = (start_slot..=end_slot)
+            .map(|slot| self.get_finality_update(slot))
+            .collect();
+        let updates: Result<Vec<Update>> =
+            futures::future::join_all(tasks).await.into_iter().collect();
+        let updates = updates?;
         self.store_finalized_update_batch(&updates)?;
         Ok(())
     }
