@@ -56,7 +56,7 @@ impl<R: CkbRpc> ForcerelayClient<R> {
     }
 
     pub async fn assemble_tx(
-        &self,
+        &mut self,
         consensus: &ConsensusClient<impl ConsensusRpc>,
         block: &BeaconBlock,
         tx: &Transaction,
@@ -125,7 +125,7 @@ mod test {
     }
 
     async fn assemble_partial_tx(
-        forcerelay: &ForcerelayClient<MockRpcClient>,
+        forcerelay: &mut ForcerelayClient<MockRpcClient>,
         path: PathBuf,
     ) -> TransactionView {
         let headers: Vec<Header> = load_json_testdata("headers.json").expect("load headers");
@@ -213,7 +213,7 @@ mod test {
     async fn test_assemble_tx() {
         setup_test_logger();
         let context = Arc::new(RefCell::new(Context::default()));
-        let forcerelay = ForcerelayClient::new(
+        let mut forcerelay = ForcerelayClient::new(
             MockRpcClient::new(context.clone()),
             &CONTRACT_TYPEID_ARGS.to_vec(),
             &BINARY_TYPEID_ARGS.to_vec(),
@@ -222,7 +222,7 @@ mod test {
 
         // generate tx
         let path = TempDir::new().unwrap();
-        let tx = assemble_partial_tx(&forcerelay, path.into_path()).await;
+        let tx = assemble_partial_tx(&mut forcerelay, path.into_path()).await;
         let tx = complete_partial_tx(&forcerelay, context.clone(), tx);
 
         // run tx

@@ -1118,5 +1118,19 @@
     "parent_root": "0x638ee0ca8eba1dae6b84eb2bcf03b11c40fb720e0765853f7cb208beb160c745",
     "state_root": "0x70ecd6f1a78c3f515fc1925a5cf9e272b51f73f038566ab18b96564360e84e7c",
     "body_root": "0xb693a3a49811f03a954833547477dc27e9076cd3ccec635007c12bd17ea8d35c"
+  },
+  {
+    "slot": "5763840",
+    "proposer_index": "268747",
+    "parent_root": "0x31d7121c5f4fc4d4c338e2a72a3865f917f638f21d3c6fbbfbd0865890c7de66",
+    "state_root": "0x02078af66325c0e56c969904f7f4f79c7a0135cb6742332918de039687703fd7",
+    "body_root": "0x107c5d3631442f7d280e7e34353e0c621182afc980ffdfaa5e557c59f48c19aa"
+  },
+  {
+    "slot": "5763841",
+    "proposer_index": "118853",
+    "parent_root": "0x4a6e6fa369ff4f48455f2b4242e8305ad41e9eeb0e70ae947adfeda385710523",
+    "state_root": "0x5b9a7766b9119e657f67274e70add77d716b878e031eabdbed9716ca4fcafb68",
+    "body_root": "0x3b7c8fbfc3f0108022d8d22eb8107bd61d0b286addb4aaed660672cf141a7ca9"
   }
 ]

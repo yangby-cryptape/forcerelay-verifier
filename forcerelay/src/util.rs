@@ -3,18 +3,12 @@ use ckb_sdk::traits::{CellQueryOptions, LiveCell, PrimaryScriptType};
 use ckb_types::core::{DepType, TransactionView};
 use ckb_types::packed::{BytesOpt, CellDep, Script, WitnessArgs};
 use ckb_types::prelude::Pack as _;
-use consensus::rpc::ConsensusRpc;
 use consensus::types::Header;
-use consensus::ConsensusClient;
 use eth2_types::{BeaconBlockHeader, Hash256, MainnetEthSpec};
 use eth_light_client_in_ckb_prover::{CachedBeaconBlock, Receipts};
-use eth_light_client_in_ckb_verification::{
-    mmr,
-    types::{core, packed, prelude::*},
-};
+use eth_light_client_in_ckb_verification::types::{core, packed, prelude::*};
 use ethers::types::{Transaction, TransactionReceipt};
 use eyre::Result;
-use storage::prelude::StorageAsMMRStore as _;
 
 use crate::rpc::CkbRpc;
 
@@ -68,24 +62,14 @@ pub fn find_receipt_index(receipt: &TransactionReceipt, receipts: &Receipts) -> 
 }
 
 pub fn assemble_partial_verification_transaction(
-    consensus: &ConsensusClient<impl ConsensusRpc>,
     block: &CachedBeaconBlock<MainnetEthSpec>,
     tx: &Transaction,
     receipt: &TransactionReceipt,
     receipts: &Receipts,
     celldeps: &[CellDep],
     client: &core::Client,
+    header_mmr_proof: &[core::HeaderDigest],
 ) -> Result<TransactionView> {
-    let mmr = consensus.storage().chain_root_mmr(client.maximal_slot)?;
-    let mmr_position = block.slot() - client.minimal_slot;
-    let mmr_index = mmr::lib::leaf_index_to_pos(mmr_position.into());
-    let header_mmr_proof = mmr
-        .gen_proof(vec![mmr_index])
-        .expect("gen mmr proof")
-        .proof_items()
-        .iter()
-        .map(Unpack::unpack)
-        .collect();
     let transaction_index = match find_receipt_index(receipt, receipts) {
         Some(index) => index,
         None => return Err(eyre::eyre!("cannot find receipt from receipts")),
@@ -99,7 +83,7 @@ pub fn assemble_partial_verification_transaction(
         header: packed::Header::from_ssz_header(&beacon_header).unpack(),
         receipts_root: receipts.root(),
         transaction_index,
-        header_mmr_proof,
+        header_mmr_proof: header_mmr_proof.to_owned(),
         transaction_ssz_proof,
         receipt_mpt_proof,
         receipts_root_ssz_proof,
