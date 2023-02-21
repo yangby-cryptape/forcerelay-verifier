@@ -197,7 +197,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
 
             Ok(Some(tx))
         } else {
-            return Err(eyre::eyre!("index out of payload.transactions bound"));
+            Err(eyre::eyre!("index out of payload.transactions bound"))
         }
     }
 
