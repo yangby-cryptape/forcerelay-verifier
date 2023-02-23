@@ -2,9 +2,9 @@ name: test
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "forcerelay-sdk" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "forcerelay-sdk" ]
 
 jobs:
   check:
