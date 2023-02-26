@@ -2,3 +2,4 @@
 
 *.env
 ckb_mmr_storage/
+ckb-dev/
