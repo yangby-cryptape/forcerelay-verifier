@@ -19,6 +19,7 @@ env_logger = "0.10.0"
 log = "0.4.17"
 ctrlc = "3.2.3"
 futures = "0.3.23"
+fdlimit = "0.2.1"
 
 client = { path = "../client" }
 config = { path = "../config" }
