@@ -26,5 +26,5 @@ common = { path = "../common" }
 consensus = { path = "../consensus" }
 
 [dev-dependencies]
-eth2_types = { git = "https://github.com/yangby-cryptape/lighthouse", rev = "62dc610", package = "types" }
-eth2_ssz_types = { version = "0.2.2", git = "https://github.com/yangby-cryptape/lighthouse", rev = "62dc610" }
+eth2_types = { git = "https://github.com/synapseweb3/lighthouse", rev = "307ade9", package = "types" }
+eth2_ssz_types = { version = "0.2.2", git = "https://github.com/synapseweb3/lighthouse", rev = "307ade9" }
