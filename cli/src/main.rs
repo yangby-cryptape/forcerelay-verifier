@@ -10,7 +10,7 @@ use eyre::Result;
 use client::{Client, ClientBuilder};
 use config::{CliConfig, Config};
 use futures::executor::block_on;
-use log::{info, LevelFilter};
+use log::{debug, info, LevelFilter};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -20,6 +20,11 @@ async fn main() -> Result<()> {
         .filter_module("execution", LevelFilter::Trace)
         .filter_module("cli", LevelFilter::Trace)
         .init();
+
+    // Panics if [`libc::getrlimit`] or [`libc::setrlimit`] fail.
+    if let Some(limit) = fdlimit::raise_fd_limit() {
+        debug!("raise the soft open file descriptor resource limit to the hard limit (={limit}).");
+    }
 
     let config = get_config();
     let mut client = ClientBuilder::new().config(config).build()?;
