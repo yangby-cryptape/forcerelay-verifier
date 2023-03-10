@@ -1,10 +1,9 @@
 use ckb_types::core::TransactionView;
+use ckb_types::packed::CellDep;
 use consensus::rpc::ConsensusRpc;
 use consensus::types::BeaconBlock;
 use consensus::ConsensusClient;
-use eth_light_client_in_ckb_verification::types::{
-    core::Client as OnChainClient, prelude::Unpack as _,
-};
+use eth_light_client_in_ckb_verification::types::core::Client as OnChainClient;
 use ethers::types::{Transaction, TransactionReceipt};
 use eyre::{eyre, Result};
 use storage::prelude::StorageReader;
@@ -28,9 +27,9 @@ impl<R: CkbRpc> ForcerelayClient<R> {
         Self { assembler }
     }
 
-    pub async fn onchain_client(&self) -> Result<OnChainClient> {
-        if let Some(packed_client) = self.assembler.fetch_onchain_packed_client().await? {
-            Ok(packed_client.unpack())
+    pub async fn onchain_client(&self) -> Result<(OnChainClient, CellDep)> {
+        if let Some(client) = self.assembler.fetch_onchain_packed_client().await? {
+            Ok(client)
         } else {
             Err(eyre!("no lightclient cell deployed on ckb"))
         }
@@ -39,12 +38,12 @@ impl<R: CkbRpc> ForcerelayClient<R> {
     pub async fn check_onchain_client_alignment(
         &self,
         consensus: &ConsensusClient<impl ConsensusRpc>,
-    ) -> Result<OnChainClient> {
-        let client = self.onchain_client().await?;
+    ) -> Result<(OnChainClient, CellDep)> {
+        let (client, celldep) = self.onchain_client().await?;
         if let Some(base_slot) = consensus.storage().get_base_beacon_header_slot()? {
             if let Some(tip_slot) = consensus.storage().get_tip_beacon_header_slot()? {
                 if client.minimal_slot == base_slot && client.maximal_slot <= tip_slot {
-                    return Ok(client);
+                    return Ok((client, celldep));
                 }
                 return Err(eyre!(
                     "consensus storage [{base_slot}, {tip_slot}] is not aligned to onchain client [{}, {}]", 
@@ -55,17 +54,30 @@ impl<R: CkbRpc> ForcerelayClient<R> {
         Err(eyre!("consensus storage is not initialized"))
     }
 
-    pub async fn assemble_tx(
+    pub async fn update_assembler_celldep(&mut self) -> Result<()> {
+        self.assembler.update_binary_celldep().await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn assemble_tx(
         &mut self,
+        client: &OnChainClient,
+        client_celldep: &CellDep,
         consensus: &ConsensusClient<impl ConsensusRpc>,
         block: &BeaconBlock,
         tx: &Transaction,
         receipt: &TransactionReceipt,
         all_receipts: &[TransactionReceipt],
     ) -> Result<TransactionView> {
-        self.assembler
-            .assemble_tx(consensus, block, tx, receipt, all_receipts)
-            .await
+        self.assembler.assemble_tx(
+            client,
+            client_celldep,
+            consensus,
+            block,
+            tx,
+            receipt,
+            all_receipts,
+        )
     }
 }
 
@@ -139,10 +151,24 @@ mod test {
             .find(|receipt| receipt.transaction_hash == tx.hash)
             .cloned()
             .expect("receipt not found");
-
-        forcerelay
-            .assemble_tx(&consensus, &block, &tx, &receipt, &all_receipts)
+        let (client, client_celldep) = forcerelay
+            .onchain_client()
             .await
+            .expect("fetch light client");
+        forcerelay
+            .update_assembler_celldep()
+            .await
+            .expect("update binary celldep");
+        forcerelay
+            .assemble_tx(
+                &client,
+                &client_celldep,
+                &consensus,
+                &block,
+                &tx,
+                &receipt,
+                &all_receipts,
+            )
             .expect("assemble partial")
     }
 

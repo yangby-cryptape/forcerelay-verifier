@@ -126,10 +126,7 @@ trait NetRpc {
 #[rpc(server, namespace = "forcerelay")]
 trait ForcerelayRpc {
     #[method(name = "getForcerelayCkbTransaction")]
-    async fn get_forcerelay_ckb_transaction(
-        &self,
-        hash: &str,
-    ) -> Result<Option<CkbTransaction>, Error>;
+    async fn get_forcerelay_ckb_transaction(&self, hash: &str) -> Result<CkbTransaction, Error>;
 }
 
 #[derive(Clone)]
@@ -317,17 +314,19 @@ impl NetRpcServer for RpcInner {
 
 #[async_trait]
 impl ForcerelayRpcServer for RpcInner {
-    async fn get_forcerelay_ckb_transaction(
-        &self,
-        hash: &str,
-    ) -> Result<Option<CkbTransaction>, Error> {
+    async fn get_forcerelay_ckb_transaction(&self, hash: &str) -> Result<CkbTransaction, Error> {
         let mut node = self.node.write().await;
         let hash = H256::from_slice(&convert_err(hex_str_to_bytes(hash))?);
         let ckb_transaction = node
             .get_ckb_transaction_by_hash(&hash)
             .await
-            .map_err(|e| Error::Custom(format!("error on tx_hash {hash}: {e}")))?;
-        Ok(ckb_transaction)
+            .map_err(|e| Error::Custom(e.to_string()))?;
+
+        if let Some(tx) = ckb_transaction {
+            Ok(tx)
+        } else {
+            Err(Error::Custom("cannot find transaction hash".to_string()))
+        }
     }
 }
 

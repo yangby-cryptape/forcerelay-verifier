@@ -657,7 +657,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             .as_secs();
 
         let time_to_next_slot = next_slot_timestamp.saturating_sub(now);
-        let next_update = time_to_next_slot + 4;
+        let next_update = time_to_next_slot + 3;
 
         Duration::seconds(next_update as i64)
     }

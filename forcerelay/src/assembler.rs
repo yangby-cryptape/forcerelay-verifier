@@ -20,6 +20,7 @@ pub struct ForcerelayAssembler<R: CkbRpc> {
     rpc: R,
     last_maximal_slot: u64,
     last_header_mmr_proof: Vec<core::HeaderDigest>,
+    binary_celldep: CellDep,
     pub binary_typeid_script: Script,
     pub lightclient_typescript: Script,
 }
@@ -51,43 +52,48 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
             rpc,
             last_maximal_slot: 0,
             last_header_mmr_proof: vec![],
+            binary_celldep: CellDep::default(),
             binary_typeid_script,
             lightclient_typescript,
         }
     }
 
-    pub async fn fetch_onchain_packed_client(&self) -> Result<Option<packed::Client>> {
+    pub async fn fetch_onchain_packed_client(&self) -> Result<Option<(core::Client, CellDep)>> {
         match search_cell(&self.rpc, &self.lightclient_typescript).await? {
             Some(cell) => {
                 if packed::ClientReader::verify(&cell.output_data, false).is_err() {
                     return Err(eyre::eyre!("unsupported lightlient data"));
                 }
                 let packed_client = packed::Client::new_unchecked(cell.output_data);
-                Ok(Some(packed_client))
+                let celldep = CellDep::new_builder().out_point(cell.out_point).build();
+                Ok(Some((packed_client.unpack(), celldep)))
             }
             None => Ok(None),
         }
     }
 
-    pub async fn assemble_tx(
+    pub async fn update_binary_celldep(&mut self) -> Result<()> {
+        if let Some(binary_celldep) =
+            search_cell_as_celldep(&self.rpc, &self.binary_typeid_script).await?
+        {
+            self.binary_celldep = binary_celldep;
+            Ok(())
+        } else {
+            Err(eyre::eyre!("light client binary cell not found"))
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn assemble_tx(
         &mut self,
+        client: &core::Client,
+        client_celldep: &CellDep,
         consensus: &ConsensusClient<impl ConsensusRpc>,
         block: &BeaconBlock,
         tx: &Transaction,
         receipt: &TransactionReceipt,
         all_receipts: &[TransactionReceipt],
     ) -> Result<TransactionView> {
-        let celldeps = prepare_celldeps(
-            &self.rpc,
-            &self.binary_typeid_script,
-            &self.lightclient_typescript,
-        )
-        .await?;
-        let client = self
-            .fetch_onchain_packed_client()
-            .await?
-            .expect("no light client")
-            .unpack();
         let block: CachedBeaconBlock<MainnetEthSpec> = block.clone().into();
         let receipts: Receipts = all_receipts.to_owned().into();
 
@@ -104,39 +110,15 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
             self.last_maximal_slot = client.maximal_slot;
         }
 
+        let celldeps = vec![self.binary_celldep.clone(), client_celldep.clone()];
         assemble_partial_verification_transaction(
             &block,
             tx,
             receipt,
             &receipts,
             &celldeps,
-            &client,
+            client,
             &self.last_header_mmr_proof,
         )
     }
-}
-
-async fn prepare_celldeps<R: CkbRpc>(
-    rpc: &R,
-    binary_script: &Script,
-    lightclient_script: &Script,
-) -> Result<Vec<CellDep>> {
-    let binary_celldep = {
-        let celldep_opt = search_cell_as_celldep(rpc, binary_script).await?;
-        if celldep_opt.is_none() {
-            return Err(eyre::eyre!("light client binary not found"));
-        }
-        celldep_opt.unwrap()
-    };
-    let lightclient_cell = {
-        let cell_opt = search_cell(rpc, lightclient_script).await?;
-        if cell_opt.is_none() {
-            return Err(eyre::eyre!("light client cell not found"));
-        }
-        cell_opt.unwrap()
-    };
-    let lightclient_celldep = CellDep::new_builder()
-        .out_point(lightclient_cell.out_point)
-        .build();
-    Ok(vec![binary_celldep, lightclient_celldep])
 }

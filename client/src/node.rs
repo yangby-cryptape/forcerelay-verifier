@@ -32,6 +32,7 @@ pub struct Node {
     finalized_payloads: BTreeMap<u64, ExecutionPayload>,
     pub history_size: usize,
     block_number_slots: BTreeMap<u64, u64>,
+    cached_block_receipts: BTreeMap<u64, Vec<TransactionReceipt>>,
     forcerelay: ForcerelayClient<RpcClient>,
 }
 
@@ -51,9 +52,6 @@ impl Node {
             ExecutionClient::new(execution_rpc).map_err(NodeError::ExecutionClientCreationError)?,
         );
 
-        let payloads = BTreeMap::new();
-        let finalized_payloads = BTreeMap::new();
-        let block_number_slots = BTreeMap::new();
         let rpc = RpcClient::new(ckb_rpc, ckb_rpc);
         let forcerelay = ForcerelayClient::new(rpc, contract_typeargs, binary_typeargs, client_id);
 
@@ -61,10 +59,11 @@ impl Node {
             consensus,
             execution,
             config,
-            payloads,
-            finalized_payloads,
+            payloads: BTreeMap::new(),
+            finalized_payloads: BTreeMap::new(),
             history_size: 64,
-            block_number_slots,
+            block_number_slots: BTreeMap::new(),
+            cached_block_receipts: BTreeMap::new(),
             forcerelay,
         })
     }
@@ -73,7 +72,7 @@ impl Node {
         let onchain_log = match onchain_log {
             Some(log) => log,
             None => {
-                let client = self
+                let (client, _) = self
                     .forcerelay
                     .onchain_client()
                     .map_err(NodeError::ForcerelayError)
@@ -96,7 +95,7 @@ impl Node {
     }
 
     pub async fn sync(&mut self) -> Result<(), NodeError> {
-        let client = self
+        let (client, _) = self
             .forcerelay
             .onchain_client()
             .await
@@ -106,12 +105,17 @@ impl Node {
             .sync(client.minimal_slot)
             .await
             .map_err(NodeError::ConsensusSyncError)?;
+        self.forcerelay
+            .update_assembler_celldep()
+            .await
+            .map_err(NodeError::ForcerelayError)?;
         self.update_block_number_slots(client.minimal_slot).await?;
+        self.update_block_number_slots(client.maximal_slot).await?;
         self.update_payloads().await
     }
 
     pub async fn advance(&mut self) -> Result<(), NodeError> {
-        let client = self
+        let (client, _) = self
             .forcerelay
             .onchain_client()
             .await
@@ -124,7 +128,17 @@ impl Node {
         if new_finality {
             self.print_status_log(Some(client.to_string())).await?;
         }
-        self.update_block_number_slots(client.maximal_slot).await?;
+        if let Some((_, last_maximal_slot)) = self.block_number_slots.last_key_value() {
+            for slot in (*last_maximal_slot + 1)..=client.maximal_slot {
+                if let Some(block_number) = self.update_block_number_slots(slot).await? {
+                    self.cache_block_receipts(block_number).await?;
+                }
+            }
+        }
+        self.forcerelay
+            .update_assembler_celldep()
+            .await
+            .map_err(NodeError::ForcerelayError)?;
         self.update_payloads().await
     }
 
@@ -153,12 +167,28 @@ impl Node {
         }
     }
 
+    async fn cache_block_receipts(&mut self, block_number: u64) -> Result<(), NodeError> {
+        if self.cached_block_receipts.len() > 512 {
+            self.cached_block_receipts.pop_first();
+        }
+        let receipts = self
+            .execution
+            .rpc
+            .get_block_receipts(block_number)
+            .await
+            .map_err(NodeError::ForcerelayError)?;
+        self.cached_block_receipts.insert(block_number, receipts);
+        Ok(())
+    }
+
     async fn get_slot_by_block_number(&mut self, block_number: u64) -> Result<u64, NodeError> {
         if let Some(slot) = self.block_number_slots.get(&block_number) {
             Ok(*slot)
         } else {
             if self.block_number_slots.is_empty() {
-                return Ok(0);
+                return Err(NodeError::ForcerelayError(eyre!(
+                    "cannot find beacon slot by block_number {block_number}"
+                )));
             }
             let ((minimal_block_number, minimal_slot), (maximal_block_number, _)) = (
                 self.block_number_slots.first_key_value().unwrap(),
@@ -185,6 +215,22 @@ impl Node {
                 }
             }
             Ok(try_slot)
+        }
+    }
+
+    async fn get_receipts_by_block_number(
+        &self,
+        block_number: u64,
+    ) -> Result<Vec<TransactionReceipt>, NodeError> {
+        if let Some(receipts) = self.cached_block_receipts.get(&block_number) {
+            Ok(receipts.clone())
+        } else {
+            Ok(self
+                .execution
+                .rpc
+                .get_block_receipts(block_number)
+                .await
+                .map_err(NodeError::ForcerelayError)?)
         }
     }
 
@@ -418,38 +464,35 @@ impl Node {
         if let Some(block_number) = eth_transaction.block_number {
             slot = self.get_slot_by_block_number(block_number.as_u64()).await?;
             let mut receipts = self
-                .execution
-                .rpc
-                .get_block_receipts(block_number.as_u64())
+                .get_receipts_by_block_number(block_number.as_u64())
                 .await?;
             all_receipts.append(&mut receipts);
         }
         if slot > 0 && !all_receipts.is_empty() {
             let block = match self.consensus.rpc.get_block(slot).await? {
                 Some(block) => block,
-                None => return Err(eyre!("block {slot} forked or skipped")),
+                None => return Err(eyre!("beacon slot {slot} forked or skipped")),
             };
-            let client = self
+            let (client, client_celldep) = self
                 .forcerelay
                 .check_onchain_client_alignment(&self.consensus)
                 .await?;
             if slot < client.minimal_slot || slot > client.maximal_slot {
                 return Err(eyre::eyre!(
-                    "block {slot} is not in the range of [{}, {}]",
+                    "beacon slot {slot} is out of range [{}, {}]",
                     client.minimal_slot,
                     client.maximal_slot
                 ));
             }
-            let ckb_transaction = self
-                .forcerelay
-                .assemble_tx(
-                    &self.consensus,
-                    &block,
-                    &eth_transaction,
-                    &eth_receipt,
-                    &all_receipts,
-                )
-                .await?;
+            let ckb_transaction = self.forcerelay.assemble_tx(
+                &client,
+                &client_celldep,
+                &self.consensus,
+                &block,
+                &eth_transaction,
+                &eth_receipt,
+                &all_receipts,
+            )?;
             return Ok(Some(ckb_transaction.data().into()));
         }
         Ok(None)
