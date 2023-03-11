@@ -47,4 +47,4 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: -p forcerelay integration-test
+          args: -p forcerelay integration_test -- --ignored
