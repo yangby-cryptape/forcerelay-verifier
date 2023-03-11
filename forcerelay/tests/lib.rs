@@ -271,7 +271,7 @@ fn finish_tx(partial_tx: Transaction) -> Transaction {
 async fn run_verifier() -> Result<()> {
     let checkpoint = "0xe06056afdb9a0a9fd7fbaf89bb0e96eced24de0104bc5b7e3960c115d6990f90";
 
-    let mut client = ClientBuilder::new()
+    let (mut client, _) = ClientBuilder::new()
         .network(networks::Network::MAINNET)
         .consensus_rpc("http://127.0.0.1:8444")
         .execution_rpc("http://127.0.0.1:8444")
