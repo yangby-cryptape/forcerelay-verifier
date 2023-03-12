@@ -1,5 +1,6 @@
-use std::process::exit;
-use std::sync::{Arc, Mutex};
+use std::panic::PanicInfo;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use clap::Parser;
 use common::utils::hex_str_to_bytes;
@@ -7,10 +8,9 @@ use dirs::home_dir;
 use env_logger::Builder;
 use eyre::Result;
 
-use client::{Client, ClientBuilder};
+use client::ClientBuilder;
 use config::{CliConfig, Config};
-use futures::executor::block_on;
-use log::{debug, info, LevelFilter};
+use log::{debug, warn, LevelFilter};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -27,50 +27,45 @@ async fn main() -> Result<()> {
     }
 
     let config = get_config();
-    let mut client = ClientBuilder::new().config(config).build()?;
+    let (client, shutdown_notifier) = ClientBuilder::new().config(config).build()?;
+    let client = Arc::new(Mutex::new(client));
 
-    client.start().await?;
+    let verifier = client.clone();
+    tokio::spawn(async move {
+        verifier.lock().await.start().await.expect("verifier start");
+    });
 
-    register_shutdown_handler(client);
-    std::future::pending().await
-}
-
-fn register_shutdown_handler(client: Client) {
-    let client = Arc::new(client);
-    let shutdown_counter = Arc::new(Mutex::new(0));
-
+    let (ctrlc_sender, mut ctrlc_receiver) = tokio::sync::mpsc::channel(1);
     ctrlc::set_handler(move || {
-        let mut counter = shutdown_counter.lock().unwrap();
-        *counter += 1;
-
-        let counter_value = *counter;
-
-        if counter_value == 3 {
-            info!("forced shutdown");
-            exit(0);
-        }
-
-        info!(
-            "shutting down... press ctrl-c {} more times to force quit",
-            3 - counter_value
-        );
-
-        if counter_value == 1 {
-            let client = client.clone();
-            std::thread::spawn(move || {
-                block_on(client.shutdown());
-                exit(0);
-            });
-        }
+        ctrlc_sender.try_send(()).expect("ctrlc_sender is droped");
     })
     .expect("could not register shutdown handler");
+
+    let (panic_sender, mut panic_receiver) = tokio::sync::mpsc::channel(1);
+    std::panic::set_hook(Box::new(move |info: &PanicInfo<'_>| {
+        panic_sender
+            .try_send(info.to_string())
+            .expect("panic_receiver is droped");
+    }));
+
+    tokio::select! {
+        _ = ctrlc_receiver.recv() => {
+            warn!("<Ctrl-C> is pressed, quit Forcerelay/Eth verifier and shutdown");
+            shutdown_notifier.send(()).await.expect("shutdown is dropped");
+        }
+        Some(panic_info) = panic_receiver.recv() => {
+            warn!("child thread paniced: {panic_info}");
+            shutdown_notifier.send(()).await.expect("shutdown is dropped");
+        }
+    }
+
+    client.lock().await.shutdown().await;
+    Ok(())
 }
 
 fn get_config() -> Config {
     let cli = Cli::parse();
-
     let config_path = home_dir().unwrap().join(".helios/helios.toml");
-
     let cli_config = cli.as_cli_config();
 
     Config::from_file(&config_path, &cli.network, &cli_config)

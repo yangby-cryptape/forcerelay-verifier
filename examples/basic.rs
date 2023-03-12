@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
     let consensus_rpc = "https://www.lightclientdata.org";
     log::info!("Using consensus RPC URL: {}", consensus_rpc);
 
-    let mut client = ClientBuilder::new()
+    let (mut client, _) = ClientBuilder::new()
         .network(Network::MAINNET)
         .consensus_rpc(consensus_rpc)
         .execution_rpc(untrusted_rpc_url)
@@ -26,6 +26,7 @@ async fn main() -> Result<()> {
         Network::MAINNET
     );
 
+    // start here will be running for a LONG time period
     client.start().await?;
 
     let head_block_num = client.get_block_number().await?;

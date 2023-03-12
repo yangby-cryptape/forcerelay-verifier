@@ -19,7 +19,8 @@ async fn setup(path: PathBuf) -> ConsensusClient<MockRpc> {
     let checkpoint =
         hex::decode("1e591af1e90f2db918b2a132991c7c2ee9a4ab26da496bd6e71e4f0bd65ea870").unwrap();
 
-    ConsensusClient::new("testdata/", &checkpoint, Arc::new(config)).unwrap()
+    let consensus = ConsensusClient::new("testdata/", &checkpoint, Arc::new(config)).unwrap();
+    consensus
 }
 
 #[tokio::test]

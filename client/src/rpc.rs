@@ -37,18 +37,28 @@ impl Rpc {
         }
     }
 
-    pub async fn start(&mut self) -> Result<SocketAddr> {
+    pub async fn start(&mut self, ready: bool) -> Result<SocketAddr> {
         let rpc_inner = RpcInner {
             node: self.node.clone(),
             port: self.port,
+            ready,
         };
 
         let (handle, addr) = start(rpc_inner).await?;
         self.handle = Some(handle);
 
-        info!("rpc server started at {}", addr);
+        if ready {
+            info!("rpc server started at {}", addr);
+        }
 
         Ok(addr)
+    }
+
+    pub async fn stop(self) -> Result<()> {
+        if let Some(handle) = self.handle {
+            handle.stop()?.await?;
+        }
+        Ok(())
     }
 }
 
@@ -126,16 +136,14 @@ trait NetRpc {
 #[rpc(server, namespace = "forcerelay")]
 trait ForcerelayRpc {
     #[method(name = "getForcerelayCkbTransaction")]
-    async fn get_forcerelay_ckb_transaction(
-        &self,
-        hash: &str,
-    ) -> Result<Option<CkbTransaction>, Error>;
+    async fn get_forcerelay_ckb_transaction(&self, hash: &str) -> Result<CkbTransaction, Error>;
 }
 
 #[derive(Clone)]
 struct RpcInner {
     node: Arc<RwLock<Node>>,
     port: u16,
+    ready: bool,
 }
 
 #[async_trait]
@@ -317,17 +325,25 @@ impl NetRpcServer for RpcInner {
 
 #[async_trait]
 impl ForcerelayRpcServer for RpcInner {
-    async fn get_forcerelay_ckb_transaction(
-        &self,
-        hash: &str,
-    ) -> Result<Option<CkbTransaction>, Error> {
+    async fn get_forcerelay_ckb_transaction(&self, hash: &str) -> Result<CkbTransaction, Error> {
+        if !self.ready {
+            return Err(Error::Custom(
+                "Forcerelay/Eth verifier is in progress of chasing the tip, please wait..."
+                    .to_string(),
+            ));
+        }
         let mut node = self.node.write().await;
         let hash = H256::from_slice(&convert_err(hex_str_to_bytes(hash))?);
         let ckb_transaction = node
             .get_ckb_transaction_by_hash(&hash)
             .await
-            .map_err(|e| Error::Custom(format!("error on tx_hash {hash}: {e}")))?;
-        Ok(ckb_transaction)
+            .map_err(|e| Error::Custom(e.to_string()))?;
+
+        if let Some(tx) = ckb_transaction {
+            Ok(tx)
+        } else {
+            Err(Error::Custom("cannot find transaction hash".to_string()))
+        }
     }
 }
 

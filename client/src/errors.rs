@@ -15,9 +15,6 @@ pub enum NodeError {
     #[error("consensus payload error: {0}")]
     ConsensusPayloadError(Report),
 
-    #[error("execution payload error: {0}")]
-    ExecutionPayloadError(Report),
-
     #[error("consensus client creation error: {0}")]
     ConsensusClientCreationError(Report),
 
@@ -36,7 +33,7 @@ pub enum NodeError {
     #[error(transparent)]
     BlockNotFoundError(#[from] BlockNotFoundError),
 
-    #[error("block_number {0} is out of range [{1}, {2}]")]
+    #[error("transaction's block {0} is out of workable range [{1}, {2}]")]
     BlockNumberToSlotError(u64, u64, u64),
 }
 

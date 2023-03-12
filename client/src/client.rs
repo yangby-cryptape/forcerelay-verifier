@@ -2,21 +2,20 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use config::networks::Network;
-use consensus::errors::ConsensusError;
 use ethers::prelude::{Address, U256};
 use ethers::types::{Filter, Log, Transaction, TransactionReceipt, H256};
 use eyre::{eyre, Result};
 
 use common::types::BlockTag;
-use config::{CheckpointFallback, Config};
-use consensus::{types::Header, ConsensusClient};
+use config::Config;
+use consensus::types::Header;
 use execution::types::{CallOpts, ExecutionBlock};
-use log::{error, info, warn};
+use log::error;
 use tokio::spawn;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
-use crate::errors::NodeError;
 use crate::node::Node;
 use crate::rpc::Rpc;
 
@@ -119,7 +118,7 @@ impl ClientBuilder {
         self
     }
 
-    pub fn build(self) -> Result<Client> {
+    pub fn build(self) -> Result<(Client, Sender<()>)> {
         let base_config = if let Some(network) = self.network {
             network.to_base_config()
         } else {
@@ -241,68 +240,60 @@ impl ClientBuilder {
             strict_checkpoint_age,
         };
 
-        Client::new(config)
+        let (sender, receiver) = channel(1);
+        Ok((Client::new(config, receiver)?, sender))
     }
 }
 
 pub struct Client {
     node: Arc<RwLock<Node>>,
+    port: u16,
     rpc: Option<Rpc>,
-    fallback: Option<String>,
-    load_external_fallback: bool,
+    shutdown_receiver: Receiver<()>,
 }
 
 impl Client {
-    fn new(config: Config) -> Result<Self> {
+    fn new(config: Config, shutdown_receiver: Receiver<()>) -> Result<Self> {
         let config = Arc::new(config);
         let node = Node::new(config.clone())?;
-        let node = Arc::new(RwLock::new(node));
-        let rpc = config.rpc_port.map(|port| Rpc::new(node.clone(), port));
+        let port = config.rpc_port.expect("no rpc server");
 
         Ok(Client {
-            node,
-            rpc,
-            fallback: config.fallback.clone(),
-            load_external_fallback: config.load_external_fallback,
+            node: Arc::new(RwLock::new(node)),
+            rpc: None,
+            port,
+            shutdown_receiver,
         })
     }
-}
 
-impl Client {
     pub async fn start(&mut self) -> Result<()> {
-        if let Err(err) = self.node.write().await.sync().await {
-            match err {
-                NodeError::ConsensusSyncError(err) => match err.downcast_ref() {
-                    Some(ConsensusError::CheckpointTooOld) => {
-                        warn!(
-                            "failed to sync consensus node with checkpoint: 0x{}",
-                            hex::encode(&self.node.read().await.config.checkpoint),
-                        );
+        // start a mock rpc server to response IN-PROGRESS message
+        let mut rpc = Rpc::new(self.node.clone(), self.port);
+        rpc.start(false).await?;
 
-                        let fallback = self.boot_from_fallback().await;
-                        if fallback.is_err() && self.load_external_fallback {
-                            self.boot_from_external_fallbacks().await?
-                        } else if fallback.is_err() {
-                            error!("Invalid checkpoint. Please update your checkpoint too a more recent block. Alternatively, set an explicit checkpoint fallback service url with the `-f` flag or use the configured external fallback services with `-l` (NOT RECOMMENDED). See https://github.com/a16z/helios#additional-options for more information.");
-                            return Err(err);
-                        }
-                    }
-                    _ => return Err(err),
-                },
-                _ => return Err(err.into()),
+        let mut node = self.node.write().await;
+        tokio::select! {
+            result = node.sync() => {
+                if let Err(err) = result {
+                    return Err(err.into());
+                }
+            },
+            _ = self.shutdown_receiver.recv() => {
+                return Ok(());
             }
         }
+        rpc.stop().await?;
 
-        if let Some(rpc) = &mut self.rpc {
-            rpc.start().await?;
-        }
+        // start a true rpc server
+        let mut rpc = Rpc::new(self.node.clone(), self.port);
+        rpc.start(true).await?;
+        self.rpc = Some(rpc);
 
         let node = self.node.clone();
         spawn(async move {
             loop {
-                let res = node.write().await.advance().await;
-                if let Err(err) = res {
-                    warn!("consensus error: {}", err);
+                if let Err(err) = node.write().await.advance().await {
+                    error!("consensus error: {}", err);
                 }
 
                 let next_update = node.read().await.duration_until_next_update();
@@ -310,75 +301,6 @@ impl Client {
             }
         });
 
-        Ok(())
-    }
-
-    async fn boot_from_fallback(&self) -> eyre::Result<()> {
-        if let Some(fallback) = &self.fallback {
-            info!(
-                "attempting to load checkpoint from fallback \"{}\"",
-                fallback
-            );
-
-            let checkpoint = CheckpointFallback::fetch_checkpoint_from_api(fallback)
-                .await
-                .map_err(|_| {
-                    eyre::eyre!("Failed to fetch checkpoint from fallback \"{}\"", fallback)
-                })?;
-
-            info!(
-                "external fallbacks responded with checkpoint 0x{:?}",
-                checkpoint
-            );
-
-            // Try to sync again with the new checkpoint by reconstructing the consensus client
-            // We fail fast here since the node is unrecoverable at this point
-            let config = self.node.read().await.config.clone();
-            let consensus =
-                ConsensusClient::new(&config.consensus_rpc, checkpoint.as_bytes(), config.clone())?;
-            self.node.write().await.consensus = consensus;
-            self.node.write().await.sync().await?;
-
-            Ok(())
-        } else {
-            Err(eyre::eyre!("no explicit fallback specified"))
-        }
-    }
-
-    async fn boot_from_external_fallbacks(&self) -> eyre::Result<()> {
-        info!("attempting to fetch checkpoint from external fallbacks...");
-        // Build the list of external checkpoint fallback services
-        let list = CheckpointFallback::new()
-            .build()
-            .await
-            .map_err(|_| eyre::eyre!("Failed to construct external checkpoint sync fallbacks"))?;
-
-        let checkpoint = if self.node.read().await.config.chain.chain_id == 5 {
-            list.fetch_latest_checkpoint(&Network::GOERLI)
-                .await
-                .map_err(|_| {
-                    eyre::eyre!("Failed to fetch latest goerli checkpoint from external fallbacks")
-                })?
-        } else {
-            list.fetch_latest_checkpoint(&Network::MAINNET)
-                .await
-                .map_err(|_| {
-                    eyre::eyre!("Failed to fetch latest mainnet checkpoint from external fallbacks")
-                })?
-        };
-
-        info!(
-            "external fallbacks responded with checkpoint {:?}",
-            checkpoint
-        );
-
-        // Try to sync again with the new checkpoint by reconstructing the consensus client
-        // We fail fast here since the node is unrecoverable at this point
-        let config = self.node.read().await.config.clone();
-        let consensus =
-            ConsensusClient::new(&config.consensus_rpc, checkpoint.as_bytes(), config.clone())?;
-        self.node.write().await.consensus = consensus;
-        self.node.write().await.sync().await?;
         Ok(())
     }
 

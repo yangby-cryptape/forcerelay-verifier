@@ -205,7 +205,6 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             futures::future::join_all(tasks).await.into_iter().collect();
         let updates = updates?;
         self.store_finalized_update_batch(&updates)?;
-        info!("headers from {} to {} are synced", start_slot, end_slot);
         Ok(())
     }
 
@@ -243,7 +242,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         let finalized_header = match finalized_header {
             Ok(Some(header)) => header,
             Ok(None) => {
-                warn!("beacon header {finality_update_slot} is forked or skipped");
+                warn!("forked or skipped beacon header ({finality_update_slot})");
                 Header {
                     slot: finality_update_slot,
                     ..Default::default()
@@ -657,7 +656,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             .as_secs();
 
         let time_to_next_slot = next_slot_timestamp.saturating_sub(now);
-        let next_update = time_to_next_slot + 4;
+        let next_update = time_to_next_slot + 3;
 
         Duration::seconds(next_update as i64)
     }
