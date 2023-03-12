@@ -285,6 +285,7 @@ impl Client {
         }
 
         let mut rpc = Rpc::new(self.node.clone(), self.port);
+        println!("end sync");
         rpc.start(true).await?;
         self.rpc = Some(rpc);
 

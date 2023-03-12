@@ -8,7 +8,7 @@ use ckb_types::packed::{CellDep, CellInput, CellOutput, OutPoint, Script, Script
 use ckb_types::{core::ScriptHashType, prelude::*};
 use jsonrpc_core::{self, Output, Response};
 
-use client::ClientBuilder;
+use client::{Client, ClientBuilder};
 use config::networks;
 use eyre::Result;
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
@@ -18,6 +18,7 @@ use std::str::FromStr;
 use std::thread;
 use std::time;
 use std::time::Duration;
+use tokio::sync::mpsc::Sender;
 
 #[ignore]
 #[tokio::test]
@@ -121,7 +122,10 @@ async fn integration_test() {
     let five_secs = time::Duration::from_secs(5);
     thread::sleep(five_secs);
 
-    std::thread::spawn(run_verifier);
+    std::thread::spawn(move || {
+        let (client, _sender) = get_client();
+        run_verifier(client)
+    });
 
     let wait_for_verifier_bootstrap = time::Duration::from_secs(35);
     thread::sleep(wait_for_verifier_bootstrap);
@@ -151,7 +155,7 @@ async fn integration_test() {
             }
             Output::Failure(_) => todo!(),
         },
-        Response::Batch(_) => todo!(),
+        Response::Batch(_) => panic!("unexpected response: {:?}", resp),
     };
 
     let five_secs = time::Duration::from_secs(5);
@@ -267,11 +271,10 @@ fn finish_tx(partial_tx: Transaction) -> Transaction {
     tx.data().into()
 }
 
-#[tokio::main]
-async fn run_verifier() -> Result<()> {
+fn get_client() -> (Client, Sender<()>) {
     let checkpoint = "0xe06056afdb9a0a9fd7fbaf89bb0e96eced24de0104bc5b7e3960c115d6990f90";
 
-    let (mut client, _) = ClientBuilder::new()
+    let (client, sender) = ClientBuilder::new()
         .network(networks::Network::MAINNET)
         .consensus_rpc("http://127.0.0.1:8444")
         .execution_rpc("http://127.0.0.1:8444")
@@ -288,6 +291,11 @@ async fn run_verifier() -> Result<()> {
         .ibc_client_id("ibc-ckb-1")
         .build()
         .unwrap();
+    (client, sender)
+}
+
+#[tokio::main]
+async fn run_verifier(mut client: Client) -> Result<()> {
     client.start().await?;
 
     std::future::pending().await
