@@ -59,9 +59,9 @@ impl<R: CkbRpc> ForcerelayClient<R> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn assemble_tx(
+    pub async fn assemble_tx(
         &mut self,
-        client: &OnChainClient,
+        client: OnChainClient,
         client_celldep: &CellDep,
         consensus: &ConsensusClient<impl ConsensusRpc>,
         block: &BeaconBlock,
@@ -69,15 +69,17 @@ impl<R: CkbRpc> ForcerelayClient<R> {
         receipt: &TransactionReceipt,
         all_receipts: &[TransactionReceipt],
     ) -> Result<TransactionView> {
-        self.assembler.assemble_tx(
-            client,
-            client_celldep,
-            consensus,
-            block,
-            tx,
-            receipt,
-            all_receipts,
-        )
+        self.assembler
+            .assemble_tx(
+                client,
+                client_celldep,
+                consensus,
+                block,
+                tx,
+                receipt,
+                all_receipts,
+            )
+            .await
     }
 }
 
@@ -161,7 +163,7 @@ mod test {
             .expect("update binary celldep");
         forcerelay
             .assemble_tx(
-                &client,
+                client,
                 &client_celldep,
                 &consensus,
                 &block,
@@ -169,6 +171,7 @@ mod test {
                 &receipt,
                 &all_receipts,
             )
+            .await
             .expect("assemble partial")
     }
 

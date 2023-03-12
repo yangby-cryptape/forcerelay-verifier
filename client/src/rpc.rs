@@ -53,6 +53,13 @@ impl Rpc {
 
         Ok(addr)
     }
+
+    pub async fn stop(self) -> Result<()> {
+        if let Some(handle) = self.handle {
+            handle.stop()?.await?;
+        }
+        Ok(())
+    }
 }
 
 #[rpc(server, namespace = "eth")]

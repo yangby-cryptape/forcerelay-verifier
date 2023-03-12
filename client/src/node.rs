@@ -484,15 +484,18 @@ impl Node {
                     client.maximal_slot
                 ));
             }
-            let ckb_transaction = self.forcerelay.assemble_tx(
-                &client,
-                &client_celldep,
-                &self.consensus,
-                &block,
-                &eth_transaction,
-                &eth_receipt,
-                &all_receipts,
-            )?;
+            let ckb_transaction = self
+                .forcerelay
+                .assemble_tx(
+                    client,
+                    &client_celldep,
+                    &self.consensus,
+                    &block,
+                    &eth_transaction,
+                    &eth_receipt,
+                    &all_receipts,
+                )
+                .await?;
             return Ok(Some(ckb_transaction.data().into()));
         }
         Ok(None)

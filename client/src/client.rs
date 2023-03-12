@@ -267,25 +267,25 @@ impl Client {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        {
-            let mut rpc = Rpc::new(self.node.clone(), self.port);
-            rpc.start(false).await?;
+        // start a mock rpc server to response IN-PROGRESS message
+        let mut rpc = Rpc::new(self.node.clone(), self.port);
+        rpc.start(false).await?;
 
-            let mut node = self.node.write().await;
-            tokio::select! {
-                result = node.sync() => {
-                    if let Err(err) = result {
-                        return Err(err.into());
-                    }
-                },
-                _ = self.shutdown_receiver.recv() => {
-                    return Ok(());
+        let mut node = self.node.write().await;
+        tokio::select! {
+            result = node.sync() => {
+                if let Err(err) = result {
+                    return Err(err.into());
                 }
+            },
+            _ = self.shutdown_receiver.recv() => {
+                return Ok(());
             }
         }
+        rpc.stop().await?;
 
+        // start a true rpc server
         let mut rpc = Rpc::new(self.node.clone(), self.port);
-        println!("end sync");
         rpc.start(true).await?;
         self.rpc = Some(rpc);
 

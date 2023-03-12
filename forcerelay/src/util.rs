@@ -61,19 +61,12 @@ pub fn find_receipt_index(receipt: &TransactionReceipt, receipts: &Receipts) -> 
     index
 }
 
-pub fn assemble_partial_verification_transaction(
+pub fn generate_packed_transaction_proof(
     block: &CachedBeaconBlock<MainnetEthSpec>,
-    tx: &Transaction,
-    receipt: &TransactionReceipt,
     receipts: &Receipts,
-    celldeps: &[CellDep],
-    client: &core::Client,
+    transaction_index: u64,
     header_mmr_proof: &[core::HeaderDigest],
-) -> Result<TransactionView> {
-    let transaction_index = match find_receipt_index(receipt, receipts) {
-        Some(index) => index,
-        None => return Err(eyre::eyre!("cannot find receipt from receipts")),
-    };
+) -> Result<packed::TransactionProof> {
     let transaction_ssz_proof =
         block.generate_transaction_proof_for_block_body(transaction_index as usize);
     let receipt_mpt_proof = receipts.generate_proof(transaction_index as usize);
@@ -88,10 +81,15 @@ pub fn assemble_partial_verification_transaction(
         receipt_mpt_proof,
         receipts_root_ssz_proof,
     };
-    let packed_proof: packed::TransactionProof = proof.pack();
-    client
-        .verify_packed_transaction_proof(packed_proof.as_reader())
-        .map_err(|_| eyre::eyre!("verify proof error"))?;
+    Ok(proof.pack())
+}
+
+pub fn generate_packed_payload_proof(
+    block: &CachedBeaconBlock<MainnetEthSpec>,
+    tx: &Transaction,
+    receipts: &Receipts,
+    transaction_index: u64,
+) -> Result<packed::TransactionPayload> {
     let beacon_tx = block
         .transaction(transaction_index as usize)
         .expect("block transaction")
@@ -99,14 +97,18 @@ pub fn assemble_partial_verification_transaction(
     if beacon_tx != tx.rlp().to_vec() {
         return Err(eyre::eyre!("execution and beacon tx is different"));
     }
-    let packed_payload: packed::TransactionPayload = core::TransactionPayload {
+    let payload = core::TransactionPayload {
         transaction: beacon_tx,
         receipt: receipts.encode_data(transaction_index as usize),
-    }
-    .pack();
-    proof
-        .verify_packed_payload(packed_payload.as_reader())
-        .map_err(|_| eyre::eyre!("verify proof payload"))?;
+    };
+    Ok(payload.pack())
+}
+
+pub fn assemble_partial_verification_transaction(
+    packed_proof: &packed::TransactionProof,
+    packed_payload: &packed::TransactionPayload,
+    celldeps: &[CellDep],
+) -> Result<TransactionView> {
     let witness = {
         let input_type_args = BytesOpt::new_builder()
             .set(Some(packed_proof.as_slice().pack()))
