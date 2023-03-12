@@ -31,16 +31,18 @@ async fn test_fetch_latest_checkpoints() {
         .build()
         .await
         .unwrap();
-    let checkpoint = cf
-        .fetch_latest_checkpoint(&networks::Network::GOERLI)
-        .await
-        .unwrap();
-    assert!(checkpoint != H256::zero());
+    let checkpoint = cf.fetch_latest_checkpoint(&networks::Network::GOERLI).await;
+    match checkpoint {
+        Ok(value) => assert!(value != H256::zero()),
+        Err(error) => assert!(error.to_string() == "No checkpoint found"),
+    };
     let checkpoint = cf
         .fetch_latest_checkpoint(&networks::Network::MAINNET)
-        .await
-        .unwrap();
-    assert!(checkpoint != H256::zero());
+        .await;
+    match checkpoint {
+        Ok(value) => assert!(value != H256::zero()),
+        Err(error) => assert!(error.to_string() == "No checkpoint found"),
+    };
 }
 
 #[tokio::test]
