@@ -3,6 +3,8 @@ name: benchmarks
 on:
   push:
     branches: [ "forcerelay-sdk" ]
+  pull_request:
+    branches: [ "forcerelay-sdk" ]
 
 env:
   MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
