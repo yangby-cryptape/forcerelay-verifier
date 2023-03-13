@@ -45,39 +45,3 @@ opt-level = "z"
 lto = true
 codegen-units = 1
 panic = "abort"
-
-######################################
-# Examples
-######################################
-
-[[example]]
-name = "checkpoints"
-path = "examples/checkpoints.rs"
-
-[[example]]
-name = "basic"
-path = "examples/basic.rs"
-
-[[example]]
-name = "client"
-path = "examples/client.rs"
-
-[[example]]
-name = "config"
-path = "examples/config.rs"
-
-######################################
-# Benchmarks
-######################################
-
-[[bench]]
-name = "get_balance"
-harness = false
-
-[[bench]]
-name = "get_code"
-harness = false
-
-[[bench]]
-name = "sync"
-harness = false
