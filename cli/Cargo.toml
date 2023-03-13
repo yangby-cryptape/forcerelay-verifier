@@ -7,7 +7,7 @@ edition = "2021"
 
 [[bin]]
 name = "cli"
-filename = "helios"
+filename = "forceth"
 path = "src/main.rs"
 
 [dependencies]
