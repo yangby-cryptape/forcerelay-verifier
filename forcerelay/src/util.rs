@@ -7,7 +7,7 @@ use consensus::types::Header;
 use eth2_types::{BeaconBlockHeader, Hash256, MainnetEthSpec};
 use eth_light_client_in_ckb_prover::{CachedBeaconBlock, Receipts};
 use eth_light_client_in_ckb_verification::types::{core, packed, prelude::*};
-use ethers::types::{Transaction, TransactionReceipt};
+use ethers::types::Transaction;
 use eyre::Result;
 
 use crate::rpc::CkbRpc;
@@ -47,14 +47,14 @@ pub fn header_helios_to_lighthouse(header: &Header) -> BeaconBlockHeader {
     }
 }
 
-pub fn find_receipt_index(receipt: &TransactionReceipt, receipts: &Receipts) -> Option<u64> {
+pub fn find_receipt_index(transaction_hash: Hash256, receipts: &Receipts) -> Option<u64> {
     let mut index = None;
     receipts
         .original()
         .iter()
         .enumerate()
         .for_each(|(i, value)| {
-            if value.transaction_hash == receipt.transaction_hash {
+            if value.transaction_hash == transaction_hash {
                 index = Some(i as u64);
             }
         });
@@ -84,7 +84,7 @@ pub fn generate_packed_transaction_proof(
     Ok(proof.pack())
 }
 
-pub fn generate_packed_payload_proof(
+pub fn generate_packed_payload(
     block: &CachedBeaconBlock<MainnetEthSpec>,
     tx: &Transaction,
     receipts: &Receipts,

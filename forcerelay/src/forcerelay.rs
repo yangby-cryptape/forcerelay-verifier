@@ -1,8 +1,9 @@
 use ckb_types::core::TransactionView;
 use ckb_types::packed::CellDep;
 use consensus::rpc::ConsensusRpc;
-use consensus::types::BeaconBlock;
 use consensus::ConsensusClient;
+use eth2_types::MainnetEthSpec;
+use eth_light_client_in_ckb_prover::CachedBeaconBlock;
 use eth_light_client_in_ckb_verification::types::core::Client as OnChainClient;
 use ethers::types::{Transaction, TransactionReceipt};
 use eyre::{eyre, Result};
@@ -64,21 +65,12 @@ impl<R: CkbRpc> ForcerelayClient<R> {
         client: OnChainClient,
         client_celldep: &CellDep,
         consensus: &ConsensusClient<impl ConsensusRpc>,
-        block: &BeaconBlock,
+        block: &CachedBeaconBlock<MainnetEthSpec>,
         tx: &Transaction,
-        receipt: &TransactionReceipt,
-        all_receipts: &[TransactionReceipt],
+        receipts: &[TransactionReceipt],
     ) -> Result<TransactionView> {
         self.assembler
-            .assemble_tx(
-                client,
-                client_celldep,
-                consensus,
-                block,
-                tx,
-                receipt,
-                all_receipts,
-            )
+            .assemble_tx(client, client_celldep, consensus, block, tx, receipts)
             .await
     }
 }
@@ -146,13 +138,8 @@ mod test {
         let consensus = make_consensus(path, headers.last().unwrap()).await;
         let block: BeaconBlock = load_json_testdata("block.json").expect("load block");
         let tx: Transaction = load_json_testdata("transaction.json").expect("load transaction");
-        let all_receipts: Vec<TransactionReceipt> =
+        let receipts: Vec<TransactionReceipt> =
             load_json_testdata("receipts.json").expect("load receipts");
-        let receipt = all_receipts
-            .iter()
-            .find(|receipt| receipt.transaction_hash == tx.hash)
-            .cloned()
-            .expect("receipt not found");
         let (client, client_celldep) = forcerelay
             .onchain_client()
             .await
@@ -166,10 +153,9 @@ mod test {
                 client,
                 &client_celldep,
                 &consensus,
-                &block,
+                &block.into(),
                 &tx,
-                &receipt,
-                &all_receipts,
+                &receipts,
             )
             .await
             .expect("assemble partial")

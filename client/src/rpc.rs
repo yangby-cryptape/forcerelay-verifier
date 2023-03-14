@@ -4,7 +4,7 @@ use ethers::{
     types::{Address, Filter, Log, Transaction, TransactionReceipt, H256, U256},
 };
 use eyre::Result;
-use log::info;
+use log::{info, trace};
 use std::{fmt::Display, net::SocketAddr, str::FromStr, sync::Arc};
 use tokio::sync::RwLock;
 
@@ -267,14 +267,14 @@ impl EthRpcServer for RpcInner {
         hash: &str,
     ) -> Result<Option<TransactionReceipt>, Error> {
         let node = self.node.read().await;
-        let hash = H256::from_slice(&convert_err(hex_str_to_bytes(hash))?);
+        let hash = convert_err(H256::from_str(hash))?;
         let receipt = convert_err(node.get_transaction_receipt(&hash).await)?;
         Ok(receipt)
     }
 
     async fn get_transaction_by_hash(&self, hash: &str) -> Result<Option<Transaction>, Error> {
         let node = self.node.read().await;
-        let hash = H256::from_slice(&convert_err(hex_str_to_bytes(hash))?);
+        let hash = convert_err(H256::from_str(hash))?;
         convert_err(node.get_transaction_by_hash(&hash).await)
     }
 
@@ -332,12 +332,19 @@ impl ForcerelayRpcServer for RpcInner {
                     .to_string(),
             ));
         }
+        let current_time = tokio::time::Instant::now();
         let mut node = self.node.write().await;
-        let hash = H256::from_slice(&convert_err(hex_str_to_bytes(hash))?);
+        let hash = convert_err(H256::from_str(hash))?;
         let ckb_transaction = node
             .get_ckb_transaction_by_hash(&hash)
             .await
             .map_err(|e| Error::Custom(e.to_string()))?;
+        trace!(
+            "time elapsed for {hash}: {} ms",
+            tokio::time::Instant::now()
+                .duration_since(current_time)
+                .as_millis()
+        );
 
         if let Some(tx) = ckb_transaction {
             Ok(tx)
