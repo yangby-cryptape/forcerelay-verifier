@@ -9,6 +9,9 @@ pub mod forcerelay;
 pub mod rpc;
 pub mod util;
 
+pub type CachedBeaconBlockMainnet =
+    eth_light_client_in_ckb_prover::CachedBeaconBlock<eth2_types::MainnetEthSpec>;
+
 #[cfg(test)]
 pub(crate) fn setup_test_logger() {
     let _ = Builder::new()

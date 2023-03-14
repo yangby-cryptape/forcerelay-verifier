@@ -1,5 +1,6 @@
 use ckb_jsonrpc_types::Transaction as CkbTransaction;
-use forcerelay::rpc::RpcClient;
+use consensus::rpc::ConsensusRpc;
+use forcerelay::{rpc::RpcClient, CachedBeaconBlockMainnet};
 use futures::TryFutureExt;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -12,7 +13,7 @@ use eyre::{eyre, Result};
 use common::errors::BlockNotFoundError;
 use common::types::BlockTag;
 use config::Config;
-use consensus::rpc::{nimbus_rpc::NimbusRpc, ConsensusRpc};
+use consensus::rpc::nimbus_rpc::NimbusRpc;
 use consensus::types::{ExecutionPayload, Header};
 use consensus::ConsensusClient;
 use execution::evm::Evm;
@@ -24,15 +25,19 @@ use log::info;
 
 use crate::errors::NodeError;
 
+const HISTORY_SIZE: usize = 64;
+const CACHED_RECEIPTS_SIZE: usize = 512;
+const CACHED_BLOCK_SIZE: usize = 64;
+
 pub struct Node {
     pub consensus: ConsensusClient<NimbusRpc>,
     pub execution: Arc<ExecutionClient<HttpRpc>>,
     pub config: Arc<Config>,
     payloads: BTreeMap<u64, ExecutionPayload>,
     finalized_payloads: BTreeMap<u64, ExecutionPayload>,
-    pub history_size: usize,
     block_number_slots: BTreeMap<u64, u64>,
     cached_block_receipts: BTreeMap<u64, Vec<TransactionReceipt>>,
+    cached_beacon_blocks: BTreeMap<u64, CachedBeaconBlockMainnet>,
     forcerelay: ForcerelayClient<RpcClient>,
 }
 
@@ -61,9 +66,9 @@ impl Node {
             config,
             payloads: BTreeMap::new(),
             finalized_payloads: BTreeMap::new(),
-            history_size: 64,
             block_number_slots: BTreeMap::new(),
             cached_block_receipts: BTreeMap::new(),
+            cached_beacon_blocks: BTreeMap::new(),
             forcerelay,
         })
     }
@@ -133,6 +138,7 @@ impl Node {
                 if let Some(block_number) = self.update_block_number_slots(slot).await? {
                     self.cache_block_receipts(block_number).await?;
                 }
+                self.cache_beacon_block(slot).await?;
             }
         }
         self.forcerelay
@@ -168,7 +174,10 @@ impl Node {
     }
 
     async fn cache_block_receipts(&mut self, block_number: u64) -> Result<(), NodeError> {
-        if self.cached_block_receipts.len() > 512 {
+        if self.cached_block_receipts.contains_key(&block_number) {
+            return Ok(());
+        }
+        if self.cached_block_receipts.len() >= CACHED_RECEIPTS_SIZE {
             self.cached_block_receipts.pop_first();
         }
         let receipts = self
@@ -178,6 +187,25 @@ impl Node {
             .await
             .map_err(NodeError::ForcerelayError)?;
         self.cached_block_receipts.insert(block_number, receipts);
+        Ok(())
+    }
+
+    async fn cache_beacon_block(&mut self, slot: u64) -> Result<(), NodeError> {
+        if self.cached_beacon_blocks.contains_key(&slot) {
+            return Ok(());
+        }
+        let block = self
+            .consensus
+            .rpc
+            .get_block(slot)
+            .await
+            .map_err(NodeError::ForcerelayError)?;
+        if let Some(block) = block {
+            if self.cached_beacon_blocks.len() >= CACHED_BLOCK_SIZE {
+                self.cached_beacon_blocks.pop_first();
+            }
+            self.cached_beacon_blocks.insert(slot, block.into());
+        }
         Ok(())
     }
 
@@ -218,22 +246,6 @@ impl Node {
         }
     }
 
-    async fn get_receipts_by_block_number(
-        &self,
-        block_number: u64,
-    ) -> Result<Vec<TransactionReceipt>, NodeError> {
-        if let Some(receipts) = self.cached_block_receipts.get(&block_number) {
-            Ok(receipts.clone())
-        } else {
-            Ok(self
-                .execution
-                .rpc
-                .get_block_receipts(block_number)
-                .await
-                .map_err(NodeError::ForcerelayError)?)
-        }
-    }
-
     async fn update_payloads(&mut self) -> Result<(), NodeError> {
         let latest_header = self.consensus.get_header();
         let latest_payload = self
@@ -258,13 +270,13 @@ impl Node {
         self.finalized_payloads
             .insert(finalized_payload.block_number, finalized_payload);
 
-        while self.payloads.len() > self.history_size {
+        while self.payloads.len() > HISTORY_SIZE {
             self.payloads.pop_first();
         }
 
         // only save one finalized block per epoch
         // finality updates only occur on epoch boundaries
-        while self.finalized_payloads.len() > usize::max(self.history_size / 32, 1) {
+        while self.finalized_payloads.len() > usize::max(HISTORY_SIZE / 32, 1) {
             self.finalized_payloads.pop_first();
         }
 
@@ -455,24 +467,15 @@ impl Node {
             Some(tx) => tx,
             None => return Ok(None),
         };
-        let eth_receipt = match self.execution.rpc.get_transaction_receipt(tx_hash).await? {
-            Some(receipt) => receipt,
-            None => return Ok(None),
-        };
         let mut slot = 0;
-        let mut all_receipts = vec![];
-        if let Some(block_number) = eth_transaction.block_number {
-            slot = self.get_slot_by_block_number(block_number.as_u64()).await?;
-            let mut receipts = self
-                .get_receipts_by_block_number(block_number.as_u64())
-                .await?;
-            all_receipts.append(&mut receipts);
+        let mut block_number = 0;
+        if let Some(number) = eth_transaction.block_number {
+            block_number = number.as_u64();
+            slot = self.get_slot_by_block_number(block_number).await?;
+            self.cache_block_receipts(block_number).await?;
+            self.cache_beacon_block(slot).await?;
         }
-        if slot > 0 && !all_receipts.is_empty() {
-            let block = match self.consensus.rpc.get_block(slot).await? {
-                Some(block) => block,
-                None => return Err(eyre!("beacon slot {slot} forked or skipped")),
-            };
+        if slot > 0 && block_number > 0 {
             let (client, client_celldep) = self
                 .forcerelay
                 .check_onchain_client_alignment(&self.consensus)
@@ -484,16 +487,23 @@ impl Node {
                     client.maximal_slot
                 ));
             }
+            let block = match self.cached_beacon_blocks.get(&slot) {
+                Some(block) => block,
+                None => return Err(eyre!("beacon slot {slot} forked or skipped")),
+            };
+            let receipts = self
+                .cached_block_receipts
+                .get(&block_number)
+                .expect("cache receipts");
             let ckb_transaction = self
                 .forcerelay
                 .assemble_tx(
                     client,
                     &client_celldep,
                     &self.consensus,
-                    &block,
+                    block,
                     &eth_transaction,
-                    &eth_receipt,
-                    &all_receipts,
+                    receipts,
                 )
                 .await?;
             return Ok(Some(ckb_transaction.data().into()));

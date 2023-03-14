@@ -3,10 +3,9 @@ use ckb_types::core::{ScriptHashType, TransactionView};
 use ckb_types::packed::{CellDep, Script};
 use ckb_types::prelude::{Builder, Entity, Pack, Reader};
 use consensus::rpc::ConsensusRpc;
-use consensus::types::BeaconBlock;
 use consensus::ConsensusClient;
 use eth2_types::MainnetEthSpec;
-use eth_light_client_in_ckb_prover::{CachedBeaconBlock, Receipts};
+use eth_light_client_in_ckb_prover::CachedBeaconBlock;
 use eth_light_client_in_ckb_verification::mmr;
 use eth_light_client_in_ckb_verification::types::{core, packed, prelude::Unpack as LcUnpack};
 use ethers::types::{Transaction, TransactionReceipt};
@@ -89,13 +88,11 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
         client: core::Client,
         client_celldep: &CellDep,
         consensus: &ConsensusClient<impl ConsensusRpc>,
-        block: &BeaconBlock,
+        block: &CachedBeaconBlock<MainnetEthSpec>,
         tx: &Transaction,
-        receipt: &TransactionReceipt,
-        all_receipts: &[TransactionReceipt],
+        receipts: &[TransactionReceipt],
     ) -> Result<TransactionView> {
-        let block: CachedBeaconBlock<MainnetEthSpec> = block.clone().into();
-        let receipts: Receipts = all_receipts.to_owned().into();
+        let receipts = receipts.to_owned().into();
 
         if self.last_maximal_slot != client.maximal_slot {
             let mmr = consensus.storage().chain_root_mmr(client.maximal_slot)?;
@@ -110,25 +107,24 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
             self.last_maximal_slot = client.maximal_slot;
         }
 
-        let transaction_index = match find_receipt_index(receipt, &receipts) {
+        let transaction_index = match find_receipt_index(tx.hash, &receipts) {
             Some(index) => index,
             None => return Err(eyre::eyre!("cannot find receipt from receipts")),
         };
         let packed_proof = generate_packed_transaction_proof(
-            &block,
+            block,
             &receipts,
             transaction_index,
             &self.last_header_mmr_proof,
         )?;
         client
             .verify_packed_transaction_proof(packed_proof.as_reader())
-            .map_err(|_| eyre::eyre!("verify transaction proof error"))?;
-        let packed_payload =
-            generate_packed_payload_proof(&block, tx, &receipts, transaction_index)?;
+            .map_err(|e| eyre::eyre!("verify transaction proof error {}", e as i8))?;
+        let packed_payload = generate_packed_payload(block, tx, &receipts, transaction_index)?;
         packed_proof
             .unpack()
             .verify_packed_payload(packed_payload.as_reader())
-            .map_err(|_| eyre::eyre!("verify payload proof error"))?;
+            .map_err(|e| eyre::eyre!("verify payload proof error {}", e as i8))?;
 
         let celldeps = vec![self.binary_celldep.clone(), client_celldep.clone()];
         assemble_partial_verification_transaction(&packed_proof, &packed_payload, &celldeps)
