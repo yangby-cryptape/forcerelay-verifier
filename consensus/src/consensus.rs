@@ -377,7 +377,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         self.store.base_slot = base_slot;
         self.store.finalized_header = bootstrap.header.clone();
         self.store.current_sync_committee = bootstrap.current_sync_committee;
-        self.store.optimistic_header = bootstrap.header.clone();
+        self.store.optimistic_header = bootstrap.header;
 
         // force to initialize mmr storage with on-chain base slot
         if !self.storage().is_initialized()? {
@@ -396,15 +396,17 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
 
     // implements checks from validate_light_client_update and process_light_client_update in the
     // specification
-    fn verify_generic_update(&self, update: &GenericUpdate) -> Result<()> {
+    fn verify_generic_update(&self, update: &mut GenericUpdate) -> Result<()> {
         let bits = get_bits(&update.sync_aggregate.sync_committee_bits);
         if bits == 0 {
             return Err(ConsensusError::InsufficientParticipation.into());
         }
 
-        let update_finalized_slot = update.finalized_header.clone().unwrap_or_default().slot;
-        let valid_time = self.expected_current_slot() >= update.signature_slot
-            && update.signature_slot > update.attested_header.slot
+        let update_finalized_slot = match &update.finalized_header {
+            Some(header) => header.slot,
+            None => 0,
+        };
+        let valid_time = update.signature_slot > update.attested_header.slot
             && update.attested_header.slot >= update_finalized_slot;
 
         if !valid_time {
@@ -437,8 +439,8 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         if update.finalized_header.is_some() && update.finality_branch.is_some() {
             let is_valid = is_finality_proof_valid(
                 &update.attested_header,
-                &mut update.finalized_header.clone().unwrap(),
-                &update.finality_branch.clone().unwrap(),
+                update.finalized_header.as_mut().unwrap(),
+                update.finality_branch.as_ref().unwrap(),
             );
 
             if !is_valid {
@@ -449,8 +451,8 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         if update.next_sync_committee.is_some() && update.next_sync_committee_branch.is_some() {
             let is_valid = is_next_committee_proof_valid(
                 &update.attested_header,
-                &mut update.next_sync_committee.clone().unwrap(),
-                &update.next_sync_committee_branch.clone().unwrap(),
+                update.next_sync_committee.as_mut().unwrap(),
+                update.next_sync_committee_branch.as_ref().unwrap(),
             );
 
             if !is_valid {
@@ -482,23 +484,23 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
     }
 
     fn verify_update(&self, update: &Update) -> Result<()> {
-        let update = GenericUpdate::from(update);
-        self.verify_generic_update(&update)
+        let mut update = GenericUpdate::from(update);
+        self.verify_generic_update(&mut update)
     }
 
     fn verify_finality_update(&self, update: &FinalityUpdate) -> Result<()> {
-        let update = GenericUpdate::from(update);
-        self.verify_generic_update(&update)
+        let mut update = GenericUpdate::from(update);
+        self.verify_generic_update(&mut update)
     }
 
     fn verify_optimistic_update(&self, update: &OptimisticUpdate) -> Result<()> {
-        let update = GenericUpdate::from(update);
-        self.verify_generic_update(&update)
+        let mut update = GenericUpdate::from(update);
+        self.verify_generic_update(&mut update)
     }
 
     // implements state changes from apply_light_client_update and process_light_client_update in
     // the specification
-    fn apply_generic_update(&mut self, update: &GenericUpdate) {
+    fn apply_generic_update(&mut self, update: GenericUpdate) {
         let committee_bits = get_bits(&update.sync_aggregate.sync_committee_bits);
 
         self.store.current_max_active_participants =
@@ -522,8 +524,8 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         let update_finalized_period = calc_sync_period(update_finalized_slot);
 
         let update_has_finalized_next_committee = self.store.next_sync_committee.is_none()
-            && self.has_sync_update(update)
-            && self.has_finality_update(update)
+            && self.has_sync_update(&update)
+            && self.has_finality_update(&update)
             && update_finalized_period == update_attested_period;
 
         let should_apply_update = {
@@ -538,19 +540,19 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             let store_period = calc_sync_period(self.store.finalized_header.slot);
 
             if self.store.next_sync_committee.is_none() {
-                self.store.next_sync_committee = update.next_sync_committee.clone();
-                self.store.next_sync_committee_branch = update.next_sync_committee_branch.clone();
+                self.store.next_sync_committee = update.next_sync_committee;
+                self.store.next_sync_committee_branch = update.next_sync_committee_branch;
             } else if update_finalized_period == store_period + 1 {
                 self.store.current_sync_committee = self.store.next_sync_committee.clone().unwrap();
-                self.store.next_sync_committee = update.next_sync_committee.clone();
-                self.store.next_sync_committee_branch = update.next_sync_committee_branch.clone();
+                self.store.next_sync_committee = update.next_sync_committee;
+                self.store.next_sync_committee_branch = update.next_sync_committee_branch;
                 self.store.previous_max_active_participants =
                     self.store.current_max_active_participants;
                 self.store.current_max_active_participants = 0;
             }
 
             if update_finalized_slot > self.store.finalized_header.slot {
-                self.store.finalized_header = update.finalized_header.clone().unwrap();
+                self.store.finalized_header = update.finalized_header.unwrap();
 
                 if self.store.finalized_header.slot % 32 == 0 {
                     let checkpoint_res = self.store.finalized_header.hash_tree_root();
@@ -568,17 +570,17 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
 
     fn apply_update(&mut self, update: &Update) {
         let update = GenericUpdate::from(update);
-        self.apply_generic_update(&update);
+        self.apply_generic_update(update);
     }
 
     fn apply_finality_update(&mut self, update: &FinalityUpdate) {
         let update = GenericUpdate::from(update);
-        self.apply_generic_update(&update);
+        self.apply_generic_update(update);
     }
 
     fn apply_optimistic_update(&mut self, update: &OptimisticUpdate) {
         let update = GenericUpdate::from(update);
-        self.apply_generic_update(&update);
+        self.apply_generic_update(update);
     }
 
     fn has_finality_update(&self, update: &GenericUpdate) -> bool {
@@ -656,7 +658,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             .as_secs();
 
         let time_to_next_slot = next_slot_timestamp.saturating_sub(now);
-        let next_update = time_to_next_slot + 3;
+        let next_update = time_to_next_slot + 4;
 
         Duration::seconds(next_update as i64)
     }
