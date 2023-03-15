@@ -17,7 +17,6 @@ use crate::util::*;
 
 pub struct ForcerelayAssembler<R: CkbRpc> {
     rpc: R,
-    last_maximal_slot: u64,
     binary_celldep: CellDep,
     pub binary_typeid_script: Script,
     pub lightclient_typescript: Script,
@@ -48,7 +47,6 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
             .build();
         Self {
             rpc,
-            last_maximal_slot: 0,
             binary_celldep: CellDep::default(),
             binary_typeid_script,
             lightclient_typescript,
@@ -90,8 +88,6 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
         tx: &Transaction,
         receipts: &[TransactionReceipt],
     ) -> Result<TransactionView> {
-        self.last_maximal_slot = client.maximal_slot;
-
         let receipts = receipts.to_owned().into();
 
         let header_mmr_proof = {
@@ -102,7 +98,7 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
                 .proof_items()
                 .iter()
                 .map(LcUnpack::unpack)
-                .collect()
+                .collect::<Vec<_>>()
         };
 
         let transaction_index = match find_receipt_index(tx.hash, &receipts) {
