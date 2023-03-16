@@ -18,7 +18,6 @@ use crate::util::*;
 pub struct ForcerelayAssembler<R: CkbRpc> {
     rpc: R,
     last_maximal_slot: u64,
-    last_header_mmr_proof: Vec<core::HeaderDigest>,
     binary_celldep: CellDep,
     pub binary_typeid_script: Script,
     pub lightclient_typescript: Script,
@@ -50,7 +49,6 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
         Self {
             rpc,
             last_maximal_slot: 0,
-            last_header_mmr_proof: vec![],
             binary_celldep: CellDep::default(),
             binary_typeid_script,
             lightclient_typescript,
@@ -92,20 +90,20 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
         tx: &Transaction,
         receipts: &[TransactionReceipt],
     ) -> Result<TransactionView> {
+        self.last_maximal_slot = client.maximal_slot;
+
         let receipts = receipts.to_owned().into();
 
-        if self.last_maximal_slot != client.maximal_slot {
+        let header_mmr_proof = {
             let mmr = consensus.storage().chain_root_mmr(client.maximal_slot)?;
             let mmr_position = block.slot() - client.minimal_slot;
             let mmr_index = mmr::lib::leaf_index_to_pos(mmr_position.into());
-            self.last_header_mmr_proof = mmr
-                .gen_proof(vec![mmr_index])?
+            mmr.gen_proof(vec![mmr_index])?
                 .proof_items()
                 .iter()
                 .map(LcUnpack::unpack)
-                .collect();
-            self.last_maximal_slot = client.maximal_slot;
-        }
+                .collect()
+        };
 
         let transaction_index = match find_receipt_index(tx.hash, &receipts) {
             Some(index) => index,
@@ -115,7 +113,7 @@ impl<R: CkbRpc> ForcerelayAssembler<R> {
             block,
             &receipts,
             transaction_index,
-            &self.last_header_mmr_proof,
+            &header_mmr_proof,
         )?;
         client
             .verify_packed_transaction_proof(packed_proof.as_reader())
