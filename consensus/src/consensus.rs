@@ -402,10 +402,11 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             return Err(ConsensusError::InsufficientParticipation.into());
         }
 
-        let update_finalized_slot = match &update.finalized_header {
-            Some(header) => header.slot,
-            None => 0,
-        };
+        let update_finalized_slot = update
+            .finalized_header
+            .as_ref()
+            .map(|header| header.slot)
+            .unwrap_or(0);
         let valid_time = update.signature_slot > update.attested_header.slot
             && update.attested_header.slot >= update_finalized_slot;
 

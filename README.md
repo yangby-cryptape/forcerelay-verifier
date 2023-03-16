@@ -1,6 +1,6 @@
 ## Forceth (Forcerelay/Eth Verifier)
 
-Forceth is a standalone verifier built from (Helios)[https://github.com/a16z/helios] to generate partial CKB crosschain (ETH -> CKB) transaction.
+Forceth is a standalone verifier built from [Helios](https://github.com/a16z/helios) to generate partial CKB crosschain (ETH -> CKB) transaction.
 
 Forceth works with an on-chain light client which contains a range of Ethereum beacon chain headers and maintains a standalone MMR native storage. The on-chain light client is presented as a CKB live cell and maintained by the Forcerelay/Eth which relays Ethereum beacon chain headers into CKB.
 
