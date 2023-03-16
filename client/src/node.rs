@@ -197,7 +197,7 @@ impl Node {
         let block = self
             .consensus
             .rpc
-            .get_block(slot)
+            .get_block_ssz(slot)
             .await
             .map_err(NodeError::ForcerelayError)?;
         if let Some(block) = block {

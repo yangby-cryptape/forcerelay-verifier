@@ -48,6 +48,10 @@ impl ConsensusRpc for MockRpc {
         Ok(Some(serde_json::from_str(&block)?))
     }
 
+    async fn get_block_ssz(&self, slot: u64) -> Result<Option<BeaconBlock>> {
+        self.get_block(slot).await
+    }
+
     async fn get_header(&self, slot: u64) -> Result<Option<Header>> {
         let first = self.headers.first().unwrap().slot;
         assert!(slot >= first);

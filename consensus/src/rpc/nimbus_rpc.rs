@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use common::errors::RpcError;
+use eth2_types::{EthSpec, MainnetEthSpec};
 use eyre::Result;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
@@ -114,6 +115,30 @@ impl ConsensusRpc for NimbusRpc {
             .map_err(|e| RpcError::new("blocks", e))?;
 
         Ok(res.block())
+    }
+
+    async fn get_block_ssz(&self, slot: u64) -> Result<Option<BeaconBlock>> {
+        let req = format!("{}/eth/v2/beacon/blocks/{}", self.rpc, slot);
+        let ssz_res = self
+            .client
+            .get(req)
+            .header("accept", "application/octet-stream")
+            .send()
+            .await
+            .map_err(|e| RpcError::new("blocks", e))?
+            .bytes()
+            .await
+            .map_err(|e| RpcError::new("blocks", e))?;
+        match serde_json::from_slice::<BeaconBlockResponse>(&ssz_res) {
+            Ok(value) => Ok(value.block()),
+            Err(_) => {
+                let signed_block =
+                    SignedBeaconBlock::from_ssz_bytes(&ssz_res, &MainnetEthSpec::default_spec())
+                        .map_err(|e| RpcError::new("blocks_ssz", format!("{e:?}")))?;
+                let (block, _) = signed_block.deconstruct();
+                Ok(Some(block))
+            }
+        }
     }
 
     async fn get_header(&self, slot: u64) -> Result<Option<Header>> {

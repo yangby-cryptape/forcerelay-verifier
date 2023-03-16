@@ -15,6 +15,7 @@ pub trait ConsensusRpc {
     async fn get_finality_update(&self) -> Result<FinalityUpdate>;
     async fn get_optimistic_update(&self) -> Result<OptimisticUpdate>;
     async fn get_block(&self, slot: u64) -> Result<Option<BeaconBlock>>;
+    async fn get_block_ssz(&self, slot: u64) -> Result<Option<BeaconBlock>>;
     async fn get_header(&self, slot: u64) -> Result<Option<Header>>;
 }
 

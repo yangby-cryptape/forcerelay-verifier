@@ -47,7 +47,7 @@ impl<R: CkbRpc> ForcerelayClient<R> {
                     return Ok((client, celldep));
                 }
                 return Err(eyre!(
-                    "consensus storage [{base_slot}, {tip_slot}] is not aligned to onchain client [{}, {}]", 
+                    "consensus storage [{base_slot}, {tip_slot}] is not aligned to onchain client [{}, {}], please wait a while...", 
                     client.minimal_slot, client.maximal_slot
                 ));
             }
