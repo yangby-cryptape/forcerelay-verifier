@@ -79,7 +79,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             content = open(dir + '/mock_data/transaction_receipt.json', 'rb').read()
             self.wfile.write(content)
-        elif post_body == b'{"id":3,"jsonrpc":"2.0","method":"eth_getBlockReceipts","params":["0xfd94e0"]}':
+        elif post_body == b'{"id":2,"jsonrpc":"2.0","method":"eth_getBlockReceipts","params":["0xfd94e0"]}':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()

@@ -153,7 +153,7 @@ async fn integration_test() {
                 let r = s.result.to_string();
                 serde_json::from_str::<Transaction>(&r).unwrap()
             }
-            Output::Failure(_) => todo!(),
+            Output::Failure(f) => panic!("failure: {:?}", f),
         },
         Response::Batch(_) => panic!("unexpected response: {:?}", resp),
     };

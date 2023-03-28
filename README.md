@@ -6,8 +6,8 @@ Forceth works with an on-chain light client which contains a range of Ethereum b
 
 ## Installing
 
-```
-cargo install --path cli
+```cmd
+cargo install --locked --path cli
 ```
 
 and then, run `forceth`.
