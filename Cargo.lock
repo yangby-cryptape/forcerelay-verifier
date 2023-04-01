@@ -617,12 +617,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ckb-always-success-script"
-version = "0.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b3b72a38c9920a29990df12002c4d069a147c8782f0c211f8a01b2df8f42bfd"
-
-[[package]]
 name = "ckb-chain-spec"
 version = "0.104.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -670,19 +664,6 @@ dependencies = [
  "rand 0.7.3",
  "secp256k1 0.20.3",
  "thiserror",
-]
-
-[[package]]
-name = "ckb-dao"
-version = "0.104.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a43f31909ad4da633f92af306fa179f2cb52ba5618e77fc6954e10b17734a0c3"
-dependencies = [
- "byteorder",
- "ckb-chain-spec",
- "ckb-dao-utils",
- "ckb-traits",
- "ckb-types",
 ]
 
 [[package]]
@@ -943,29 +924,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ckb-testtool"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "703aaa11e6b29154b78a52feb259329d7dadba5401b0cebd13f0356bdd5c6999"
-dependencies = [
- "ckb-always-success-script",
- "ckb-chain-spec",
- "ckb-crypto",
- "ckb-error",
- "ckb-hash",
- "ckb-jsonrpc-types",
- "ckb-resource",
- "ckb-script",
- "ckb-traits",
- "ckb-types",
- "ckb-verification",
- "ckb-vm-definitions",
- "lazy_static",
- "linked_hash_set",
- "rand 0.7.3",
-]
-
-[[package]]
 name = "ckb-traits"
 version = "0.104.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -993,36 +951,6 @@ dependencies = [
  "molecule",
  "numext-fixed-uint",
  "once_cell",
-]
-
-[[package]]
-name = "ckb-verification"
-version = "0.104.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "940acea7bc1cb74529219a4366879f12b8c11029393f23575e8a41a7d59b5d8b"
-dependencies = [
- "ckb-chain-spec",
- "ckb-dao",
- "ckb-dao-utils",
- "ckb-error",
- "ckb-pow",
- "ckb-script",
- "ckb-traits",
- "ckb-types",
- "ckb-verification-traits",
- "derive_more",
- "faketime",
- "lru",
-]
-
-[[package]]
-name = "ckb-verification-traits"
-version = "0.104.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42dda3f885786628c743c43289c259d765dc33d82a1ebd3fdaeca913618f54c4"
-dependencies = [
- "bitflags",
- "ckb-error",
 ]
 
 [[package]]
@@ -2329,16 +2257,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
 
 [[package]]
-name = "faketime"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fdcfc2bfe63c760bba09679ed6cb3a001d409c5195b4490dced0dc0aa800582b"
-dependencies = [
- "js-sys",
- "tempfile",
-]
-
-[[package]]
 name = "fallible-iterator"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2476,7 +2394,6 @@ dependencies = [
  "async-trait",
  "ckb-jsonrpc-types",
  "ckb-sdk",
- "ckb-testtool",
  "ckb-types",
  "client",
  "config",
@@ -2496,6 +2413,7 @@ dependencies = [
  "serde_json",
  "storage",
  "tempfile",
+ "test-utils",
  "thiserror",
  "tokio",
  "tree_hash",
@@ -3647,15 +3565,6 @@ name = "linked-hash-map"
 version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
-
-[[package]]
-name = "linked_hash_set"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47186c6da4d81ca383c7c47c1bfc80f4b95f4720514d860a5407aaf4233f9588"
-dependencies = [
- "linked-hash-map",
-]
 
 [[package]]
 name = "linux-raw-sys"
@@ -5754,6 +5663,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bab24d30b911b2376f3a13cc2cd443142f0c81dda04c118693e35b3835757755"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "test-utils"
+version = "0.1.0"
+dependencies = [
+ "ckb-error",
+ "ckb-script",
+ "ckb-traits",
+ "ckb-types",
+ "log",
+ "rand 0.7.3",
 ]
 
 [[package]]

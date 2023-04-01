@@ -14,7 +14,8 @@ members = [
     "storage",
     "consensus",
     "execution",
-    "forcerelay"
+    "forcerelay",
+    "test-utils"
 ]
 
 [dependencies]

@@ -1,0 +1,12 @@
+[package]
+name = "test-utils"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ckb-script    = "0.104.0"
+ckb-types     = "0.104.0"
+ckb-traits    = "0.104.0"
+ckb-error     = "0.104.0"
+log = "0.4.17"
+rand = "0.7.3"
