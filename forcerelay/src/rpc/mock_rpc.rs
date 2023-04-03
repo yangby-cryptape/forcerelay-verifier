@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use ckb_jsonrpc_types::{
     BlockNumber, BlockView, CellWithStatus, HeaderView, JsonBytes, OutPoint, OutputsValidator,
-    Transaction, TransactionWithStatus,
+    Transaction, TransactionWithStatusResponse,
 };
 use ckb_sdk::constants::TYPE_ID_CODE_HASH;
 use ckb_sdk::rpc::ckb_indexer::{Cell, Pagination, SearchKey};
@@ -58,7 +58,7 @@ impl CkbRpc for MockRpcClient {
         unimplemented!()
     }
 
-    fn get_transaction(&self, _hash: &H256) -> Rpc<Option<TransactionWithStatus>> {
+    fn get_transaction(&self, _hash: &H256) -> Rpc<Option<TransactionWithStatusResponse>> {
         unimplemented!()
     }
 
@@ -74,7 +74,10 @@ impl CkbRpc for MockRpcClient {
         unimplemented!()
     }
 
-    fn get_txs_by_hashes(&self, _hashes: Vec<H256>) -> Rpc<Vec<Option<TransactionWithStatus>>> {
+    fn get_txs_by_hashes(
+        &self,
+        _hashes: Vec<H256>,
+    ) -> Rpc<Vec<Option<TransactionWithStatusResponse>>> {
         unimplemented!()
     }
 
@@ -116,7 +119,7 @@ impl CkbRpc for MockRpcClient {
                 Default::default(),
                 Some(search_script),
             );
-            live_cell.output_data = JsonBytes::from_vec(data);
+            live_cell.output_data = Some(JsonBytes::from_vec(data));
             live_cell.out_point = deployed_cell.out_point().into();
         } else {
             panic!("unsupported search_script: {search_script}");

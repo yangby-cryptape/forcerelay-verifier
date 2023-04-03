@@ -1,6 +1,6 @@
 use ckb_jsonrpc_types::{
     BlockNumber, BlockView, CellWithStatus, HeaderView, JsonBytes, OutPoint, OutputsValidator,
-    Transaction, TransactionWithStatus, Uint32,
+    Transaction, TransactionWithStatusResponse, Uint32,
 };
 use ckb_sdk::rpc::ckb_indexer::{Cell, Order, Pagination, SearchKey};
 use ckb_types::H256;
@@ -89,12 +89,12 @@ impl CkbRpc for RpcClient {
         jsonrpc!("get_tip_header", Target::CKB, self, HeaderView).boxed()
     }
 
-    fn get_transaction(&self, hash: &H256) -> Rpc<Option<TransactionWithStatus>> {
+    fn get_transaction(&self, hash: &H256) -> Rpc<Option<TransactionWithStatusResponse>> {
         jsonrpc!(
             "get_transaction",
             Target::CKB,
             self,
-            Option<TransactionWithStatus>,
+            Option<TransactionWithStatusResponse>,
             hash
         )
         .boxed()
@@ -128,7 +128,10 @@ impl CkbRpc for RpcClient {
         .boxed()
     }
 
-    fn get_txs_by_hashes(&self, hashes: Vec<H256>) -> Rpc<Vec<Option<TransactionWithStatus>>> {
+    fn get_txs_by_hashes(
+        &self,
+        hashes: Vec<H256>,
+    ) -> Rpc<Vec<Option<TransactionWithStatusResponse>>> {
         let mut list = Vec::with_capacity(hashes.len());
         let mut res = Vec::with_capacity(hashes.len());
         for hash in hashes {
