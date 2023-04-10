@@ -47,7 +47,7 @@ impl<R: CkbRpc> ForcerelayClient<R> {
                     return Ok((client, celldep));
                 }
                 return Err(eyre!(
-                    "consensus storage [{base_slot}, {tip_slot}] is not aligned to onchain client [{}, {}], please wait a while...", 
+                    "consensus storage [{base_slot}, {tip_slot}] is not aligned to onchain client [{}, {}], please wait a while...",
                     client.minimal_slot, client.maximal_slot
                 ));
             }
@@ -78,15 +78,14 @@ impl<R: CkbRpc> ForcerelayClient<R> {
 #[cfg(test)]
 mod test {
     use ckb_jsonrpc_types::TransactionView as JsonTxView;
-    use ckb_testtool::builtin::ALWAYS_SUCCESS;
-    use ckb_testtool::context::Context;
     use ckb_types::core::{Capacity, ScriptHashType, TransactionView};
-    use ckb_types::packed::{CellDep, CellInput, CellOutput, Script};
+    use ckb_types::packed::{CellOutput, Script};
     use ckb_types::{bytes::Bytes, prelude::*};
     use ethers::types::{Transaction, TransactionReceipt};
     use eyre::Result;
     use std::{cell::RefCell, path::PathBuf, sync::Arc};
     use tempfile::TempDir;
+    use test_utils::{Context, Verifier};
 
     use config::{networks, Config};
     use consensus::types::{BeaconBlock, Header};
@@ -97,6 +96,7 @@ mod test {
     use crate::setup_test_logger;
 
     const BUSINESS_BIN: &str = "eth_light_client-mock_business_type_lock";
+    const ALWAYS_SUCCESS: &str = "always_success";
 
     async fn make_consensus(path: PathBuf, last_header: &Header) -> ConsensusClient<MockRpc> {
         let base_config = networks::goerli();
@@ -169,11 +169,14 @@ mod test {
         let mut context = context.borrow_mut();
         // prepare always_success
         let (always_success_lock, always_success_contract) = {
-            let out_point = context.deploy_cell(ALWAYS_SUCCESS.clone());
-            let lock = context
-                .build_script(&out_point, Default::default())
-                .unwrap();
-            let celldep = CellDep::new_builder().out_point(out_point).build();
+            let data = std::fs::read(format!("{TESTDATA_DIR}lightclient/{ALWAYS_SUCCESS}"))
+                .expect("read always_success");
+            let deployed_cell = context.deploy(data.into(), Default::default(), None);
+            let lock = Script::new_builder()
+                .code_hash(deployed_cell.data_hash())
+                .hash_type(ScriptHashType::Data1.into())
+                .build();
+            let celldep = deployed_cell.as_cell_dep();
             (lock, celldep)
         };
         let mock_output = CellOutput::new_builder()
@@ -199,29 +202,20 @@ mod test {
             .hash_type(ScriptHashType::Data1.into())
             .args(business_args.pack())
             .build();
-        let business_contract = CellDep::new_builder()
-            .out_point(context.deploy_cell(data.into()))
-            .build();
+        let deployed_business_contract = context.deploy(data.into(), Default::default(), None);
         let business_cell = {
-            let cell = CellOutput::new_builder()
-                .lock(always_success_lock)
-                .type_(Some(business_type).pack())
-                .build_exact_capacity(Capacity::zero())
-                .unwrap();
-            CellInput::new_builder()
-                .previous_output(context.create_cell(cell, Default::default()))
-                .build()
+            let deployed_cell =
+                context.deploy(Default::default(), always_success_lock, Some(business_type));
+            deployed_cell.as_input()
         };
         // rebuild tx
-        let tx = tx
-            .as_advanced_builder()
+        tx.as_advanced_builder()
             .cell_dep(always_success_contract)
-            .cell_dep(business_contract)
+            .cell_dep(deployed_business_contract.as_cell_dep())
             .input(business_cell)
             .output(mock_output)
             .output_data(Bytes::new().pack())
-            .build();
-        context.complete_tx(tx)
+            .build()
     }
 
     #[tokio::test]
@@ -241,7 +235,9 @@ mod test {
         let tx = complete_partial_tx(&forcerelay, context.clone(), tx);
 
         // run tx
-        let cycles = context.borrow_mut().verify_tx(&tx, u64::MAX);
+        let rtx = context.borrow().resolve(tx.clone());
+        let verifier = Verifier::default();
+        let cycles = verifier.verify_without_limit(&rtx);
         match cycles {
             Ok(value) => println!("consume cycles: {value}"),
             Err(error) => {

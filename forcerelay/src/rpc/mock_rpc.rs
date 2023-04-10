@@ -3,14 +3,14 @@ use std::sync::Arc;
 
 use ckb_jsonrpc_types::{
     BlockNumber, BlockView, CellWithStatus, HeaderView, JsonBytes, OutPoint, OutputsValidator,
-    Transaction, TransactionWithStatus,
+    Transaction, TransactionWithStatusResponse,
 };
 use ckb_sdk::constants::TYPE_ID_CODE_HASH;
 use ckb_sdk::rpc::ckb_indexer::{Cell, Pagination, SearchKey};
-use ckb_testtool::context::Context;
-use ckb_types::core::{Capacity, ScriptHashType};
-use ckb_types::packed::{CellOutput, Script};
+use ckb_types::core::ScriptHashType;
+use ckb_types::packed::Script;
 use ckb_types::{prelude::*, H256};
+use test_utils::Context;
 
 use crate::rpc::rpc_trait::{CkbRpc, Rpc};
 
@@ -40,11 +40,7 @@ impl MockRpcClient {
         }
     }
 
-    pub fn into_context(self) -> Context {
-        self.context.take()
-    }
-
-    fn context(&self) -> RefMut<'_, Context> {
+    fn mut_context(&self) -> RefMut<'_, Context> {
         self.context.borrow_mut()
     }
 }
@@ -62,7 +58,7 @@ impl CkbRpc for MockRpcClient {
         unimplemented!()
     }
 
-    fn get_transaction(&self, _hash: &H256) -> Rpc<Option<TransactionWithStatus>> {
+    fn get_transaction(&self, _hash: &H256) -> Rpc<Option<TransactionWithStatusResponse>> {
         unimplemented!()
     }
 
@@ -78,7 +74,10 @@ impl CkbRpc for MockRpcClient {
         unimplemented!()
     }
 
-    fn get_txs_by_hashes(&self, _hashes: Vec<H256>) -> Rpc<Vec<Option<TransactionWithStatus>>> {
+    fn get_txs_by_hashes(
+        &self,
+        _hashes: Vec<H256>,
+    ) -> Rpc<Vec<Option<TransactionWithStatusResponse>>> {
         unimplemented!()
     }
 
@@ -102,11 +101,10 @@ impl CkbRpc for MockRpcClient {
             // handle verify binary contract search
             let data =
                 std::fs::read(format!("{TESTDATA_DIR}lightclient/{VERIFY_BIN}")).expect("read bin");
-            let binary_cell = CellOutput::new_builder()
-                .type_(Some(search_script).pack())
-                .build_exact_capacity(Capacity::bytes(data.len()).unwrap())
-                .unwrap();
-            live_cell.out_point = self.context().create_cell(binary_cell, data.into()).into();
+            let deployed_cell =
+                self.mut_context()
+                    .deploy(data.into(), Default::default(), Some(search_script));
+            live_cell.out_point = deployed_cell.out_point().into();
         } else if search_script.code_hash() == self.lightclient_typeid.pack() {
             // handle light client cell search
             let data = {
@@ -116,15 +114,13 @@ impl CkbRpc for MockRpcClient {
                 .expect("read client");
                 hex::decode(data).expect("unhex client")
             };
-            let lightclient_cell = CellOutput::new_builder()
-                .type_(Some(search_script).pack())
-                .build_exact_capacity(Capacity::zero())
-                .unwrap();
-            let out_point = self
-                .context()
-                .create_cell(lightclient_cell, data.clone().into());
-            live_cell.output_data = JsonBytes::from_vec(data);
-            live_cell.out_point = out_point.into();
+            let deployed_cell = self.mut_context().deploy(
+                data.clone().into(),
+                Default::default(),
+                Some(search_script),
+            );
+            live_cell.output_data = Some(JsonBytes::from_vec(data));
+            live_cell.out_point = deployed_cell.out_point().into();
         } else {
             panic!("unsupported search_script: {search_script}");
         }
