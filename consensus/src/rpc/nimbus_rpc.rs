@@ -106,10 +106,10 @@ impl ConsensusRpc for NimbusRpc {
         let req = format!("{}/eth/v2/beacon/blocks/{}", self.rpc, slot);
         let res = self
             .client
-            .get(req)
+            .get(req.clone())
             .send()
             .await
-            .map_err(|e| RpcError::new(format!("blocks {slot}").as_str(), e))?
+            .map_err(|e| RpcError::new(req.as_str(), e))?
             .json::<BeaconBlockResponse>()
             .await
             .map_err(|e| RpcError::new(format!("blocks {slot}").as_str(), e))?;
@@ -121,11 +121,11 @@ impl ConsensusRpc for NimbusRpc {
         let req = format!("{}/eth/v2/beacon/blocks/{}", self.rpc, slot);
         let ssz_res = self
             .client
-            .get(req)
+            .get(req.clone())
             .header("accept", "application/octet-stream")
             .send()
             .await
-            .map_err(|e| RpcError::new(format!("blocks {slot}").as_str(), e))?
+            .map_err(|e| RpcError::new(req.as_str(), e))?
             .bytes()
             .await
             .map_err(|e| RpcError::new(format!("blocks {slot}").as_str(), e))?;
