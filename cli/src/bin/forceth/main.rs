@@ -18,7 +18,7 @@ async fn main() -> Result<()> {
         .filter_module("forcerelay", LevelFilter::Trace)
         .filter_module("consensus", LevelFilter::Trace)
         .filter_module("execution", LevelFilter::Trace)
-        .filter_module("cli", LevelFilter::Trace)
+        .filter_module("forceth", LevelFilter::Trace)
         .init();
 
     // Panics if [`libc::getrlimit`] or [`libc::setrlimit`] fail.
