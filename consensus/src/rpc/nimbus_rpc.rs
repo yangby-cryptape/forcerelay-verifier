@@ -109,10 +109,10 @@ impl ConsensusRpc for NimbusRpc {
             .get(req)
             .send()
             .await
-            .map_err(|e| RpcError::new("blocks", e))?
+            .map_err(|e| RpcError::new(format!("blocks {slot}").as_str(), e))?
             .json::<BeaconBlockResponse>()
             .await
-            .map_err(|e| RpcError::new("blocks", e))?;
+            .map_err(|e| RpcError::new(format!("blocks {slot}").as_str(), e))?;
 
         Ok(res.block())
     }
@@ -125,10 +125,10 @@ impl ConsensusRpc for NimbusRpc {
             .header("accept", "application/octet-stream")
             .send()
             .await
-            .map_err(|e| RpcError::new("blocks", e))?
+            .map_err(|e| RpcError::new(format!("blocks {slot}").as_str(), e))?
             .bytes()
             .await
-            .map_err(|e| RpcError::new("blocks", e))?;
+            .map_err(|e| RpcError::new(format!("blocks {slot}").as_str(), e))?;
         match serde_json::from_slice::<BeaconBlockResponse>(&ssz_res) {
             Ok(value) => Ok(value.block()),
             Err(_) => {

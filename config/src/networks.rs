@@ -102,7 +102,7 @@ pub fn goerli() -> BaseConfig {
             },
             capella: Fork {
                 epoch: 162304,
-                fork_version: hex::decode("03001020").unwrap(),
+                fork_version: hex_str_to_bytes("0x03001020").unwrap(),
             },
         },
         max_checkpoint_age: 1_209_600, // 14 days
