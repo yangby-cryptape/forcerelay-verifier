@@ -128,7 +128,7 @@ impl ConsensusRpc for NimbusRpc {
             .map_err(|e| RpcError::new(req.as_str(), e))?
             .bytes()
             .await
-            .map_err(|e| RpcError::new(format!("blocks {slot}").as_str(), e))?;
+            .map_err(|e| RpcError::new(format!("blocks_ssz {slot}").as_str(), e))?;
         match serde_json::from_slice::<BeaconBlockResponse>(&ssz_res) {
             Ok(value) => Ok(value.block()),
             Err(_) => {
