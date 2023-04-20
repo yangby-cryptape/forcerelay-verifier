@@ -62,6 +62,10 @@ pub fn mainnet() -> BaseConfig {
                 epoch: 144896,
                 fork_version: hex_str_to_bytes("0x02000000").unwrap(),
             },
+            capella: Fork {
+                epoch: 194048,
+                fork_version: hex_str_to_bytes("0x03000000").unwrap(),
+            },
         },
         max_checkpoint_age: u64::MAX,
     }
@@ -95,6 +99,10 @@ pub fn goerli() -> BaseConfig {
             bellatrix: Fork {
                 epoch: 112260,
                 fork_version: hex_str_to_bytes("0x02001020").unwrap(),
+            },
+            capella: Fork {
+                epoch: 162304,
+                fork_version: hex::decode("03001020").unwrap().into(),
             },
         },
         max_checkpoint_age: 1_209_600, // 14 days
