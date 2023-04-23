@@ -16,6 +16,8 @@ pub type Transaction = List<u8, 1073741824>;
 
 pub type BeaconBlock = eth2_types::BeaconBlock<eth2_types::MainnetEthSpec>;
 pub type ExecutionPayload = eth2_types::ExecutionPayload<eth2_types::MainnetEthSpec>;
+pub type ExecutionPayloadMerge = eth2_types::ExecutionPayloadMerge<eth2_types::MainnetEthSpec>;
+pub type ExecutionPayloadCapella = eth2_types::ExecutionPayloadCapella<eth2_types::MainnetEthSpec>;
 pub type SignedBeaconBlock = eth2_types::SignedBeaconBlock<eth2_types::MainnetEthSpec>;
 
 #[derive(serde::Deserialize, Debug, Default, SimpleSerialize, Clone)]

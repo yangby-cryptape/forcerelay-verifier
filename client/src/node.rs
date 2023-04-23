@@ -165,8 +165,8 @@ impl Node {
                 .await
                 .map_err(NodeError::ConsensusPayloadError)?;
             if let Some(payload) = payload {
-                self.block_number_slots.insert(payload.block_number, slot);
-                Ok(Some(payload.block_number))
+                self.block_number_slots.insert(payload.block_number(), slot);
+                Ok(Some(payload.block_number()))
             } else {
                 Ok(None)
             }
@@ -264,11 +264,11 @@ impl Node {
             .expect("finalized execution payload");
 
         self.payloads
-            .insert(latest_payload.block_number, latest_payload);
+            .insert(latest_payload.block_number(), latest_payload);
         self.payloads
-            .insert(finalized_payload.block_number, finalized_payload.clone());
+            .insert(finalized_payload.block_number(), finalized_payload.clone());
         self.finalized_payloads
-            .insert(finalized_payload.block_number, finalized_payload);
+            .insert(finalized_payload.block_number(), finalized_payload);
 
         while self.payloads.len() > HISTORY_SIZE {
             self.payloads.pop_first();
@@ -329,14 +329,14 @@ impl Node {
 
     pub fn get_block_transaction_count_by_hash(&self, hash: &Vec<u8>) -> Result<u64> {
         let payload = self.get_payload_by_hash(hash)?;
-        let transaction_count = payload.1.transactions.len();
+        let transaction_count = payload.1.transactions().len();
 
         Ok(transaction_count as u64)
     }
 
     pub fn get_block_transaction_count_by_number(&self, block: BlockTag) -> Result<u64> {
         let payload = self.get_payload(block)?;
-        let transaction_count = payload.transactions.len();
+        let transaction_count = payload.transactions().len();
 
         Ok(transaction_count as u64)
     }
@@ -412,7 +412,7 @@ impl Node {
         let payload = self.get_payload(BlockTag::Latest)?;
         let base_fee = {
             let mut base_fee = [0u8; 32];
-            payload.base_fee_per_gas.to_little_endian(&mut base_fee);
+            payload.base_fee_per_gas().to_little_endian(&mut base_fee);
             U256::from_little_endian(&base_fee)
         };
         let tip = U256::from(10_u64.pow(9));
@@ -429,7 +429,7 @@ impl Node {
         self.check_head_age()?;
 
         let payload = self.get_payload(BlockTag::Latest)?;
-        Ok(payload.block_number)
+        Ok(payload.block_number())
     }
 
     pub async fn get_block_by_number(
@@ -523,7 +523,7 @@ impl Node {
     pub fn get_coinbase(&self) -> Result<Address> {
         self.check_head_age()?;
         let payload = self.get_payload(BlockTag::Latest)?;
-        let coinbase_address = Address::from_slice(payload.fee_recipient.as_bytes());
+        let coinbase_address = Address::from_slice(payload.fee_recipient().as_bytes());
         Ok(coinbase_address)
     }
 
@@ -554,7 +554,7 @@ impl Node {
         let payloads = self
             .payloads
             .iter()
-            .filter(|entry| entry.1.block_hash.into_root().as_bytes() == hash)
+            .filter(|entry| entry.1.block_hash().into_root().as_bytes() == hash)
             .collect::<Vec<(&u64, &ExecutionPayload)>>();
 
         payloads

@@ -40,6 +40,9 @@ plotters = "0.3.3"
 tempfile = "3.3.0"
 hex = "0.4.3"
 
+[patch.crates-io]
+arbitrary = { git = "https://github.com/michaelsproul/arbitrary", rev="f002b99989b561ddce62e4cf2887b0f8860ae991" }
+
 [profile.release]
 strip = true
 opt-level = "z"

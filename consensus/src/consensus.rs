@@ -125,7 +125,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             }
         }
         let payload = match block.body().execution_payload() {
-            Ok(payload) => payload.execution_payload.clone(),
+            Ok(payload) => payload.execution_payload_ref().clone_from_ref(),
             Err(err) => return Err(eyre!(format!("invalid execution_payload: {err:?}"))),
         };
         Ok(Some(payload))

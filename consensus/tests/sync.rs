@@ -48,7 +48,7 @@ async fn test_get_payload() {
         .await
         .expect("payload")
         .unwrap();
-    assert_eq!(payload.block_number, 7530932);
+    assert_eq!(payload.block_number(), 7530932);
 }
 
 #[tokio::test]

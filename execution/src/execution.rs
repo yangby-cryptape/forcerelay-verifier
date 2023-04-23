@@ -46,7 +46,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
 
         let proof = self
             .rpc
-            .get_proof(address, slots, payload.block_number)
+            .get_proof(address, slots, payload.block_number())
             .await?;
 
         let account_path = keccak256(address.as_bytes()).to_vec();
@@ -54,7 +54,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
 
         let is_valid = verify_proof(
             &proof.account_proof,
-            payload.state_root.as_bytes(),
+            payload.state_root().as_bytes(),
             &account_path,
             &account_encoded,
         );
@@ -90,7 +90,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
         let code = if proof.code_hash == KECCAK_EMPTY {
             Vec::new()
         } else {
-            let code = self.rpc.get_code(address, payload.block_number).await?;
+            let code = self.rpc.get_code(address, payload.block_number()).await?;
             let code_hash = keccak256(&code).into();
 
             if proof.code_hash != code_hash {
@@ -128,7 +128,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
         let empty_uncle_hash = "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347";
 
         let tx_hashes = payload
-            .transactions
+            .transactions()
             .iter()
             .map(|tx| keccak256(&**tx).into())
             .collect::<Vec<H256>>();
@@ -136,7 +136,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
         let txs = if full_tx {
             let txs_fut = tx_hashes.iter().map(|hash| async move {
                 let mut payloads = BTreeMap::new();
-                payloads.insert(payload.block_number, payload.clone());
+                payloads.insert(payload.block_number(), payload.clone());
                 let tx = self
                     .get_transaction(hash, &payloads)
                     .await?
@@ -156,25 +156,25 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
 
         let mut base_fee_per_gas = [0u8; 32];
         payload
-            .base_fee_per_gas
+            .base_fee_per_gas()
             .to_little_endian(&mut base_fee_per_gas);
         Ok(ExecutionBlock {
-            number: payload.block_number,
+            number: payload.block_number(),
             base_fee_per_gas: U256::from_little_endian(&base_fee_per_gas),
             difficulty: U256::from(0),
-            extra_data: payload.extra_data.to_vec(),
-            gas_limit: payload.gas_limit,
-            gas_used: payload.gas_used,
-            hash: H256::from_slice(payload.block_hash.into_root().as_bytes()),
-            logs_bloom: payload.logs_bloom.to_vec(),
-            miner: Address::from_slice(payload.fee_recipient.as_bytes()),
-            parent_hash: H256::from_slice(payload.parent_hash.into_root().as_bytes()),
-            receipts_root: H256::from_slice(payload.receipts_root.as_bytes()),
-            state_root: H256::from_slice(payload.state_root.as_bytes()),
-            timestamp: payload.timestamp,
+            extra_data: payload.extra_data().to_vec(),
+            gas_limit: payload.gas_limit(),
+            gas_used: payload.gas_used(),
+            hash: H256::from_slice(payload.block_hash().into_root().as_bytes()),
+            logs_bloom: payload.logs_bloom().to_vec(),
+            miner: Address::from_slice(payload.fee_recipient().as_bytes()),
+            parent_hash: H256::from_slice(payload.parent_hash().into_root().as_bytes()),
+            receipts_root: H256::from_slice(payload.receipts_root().as_bytes()),
+            state_root: H256::from_slice(payload.state_root().as_bytes()),
+            timestamp: payload.timestamp(),
             total_difficulty: 0,
             transactions: txs,
-            mix_hash: H256::from_slice(payload.prev_randao.as_bytes()),
+            mix_hash: H256::from_slice(payload.prev_randao().as_bytes()),
             nonce: empty_nonce,
             sha3_uncles: H256::from_str(empty_uncle_hash)?,
             size: 0,
@@ -188,10 +188,10 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
         payload: &ExecutionPayload,
         index: usize,
     ) -> Result<Option<Transaction>> {
-        if let Some(tx) = payload.transactions.get(index) {
+        if let Some(tx) = payload.transactions().get(index) {
             let tx_hash = keccak256(&**tx).into();
             let mut payloads = BTreeMap::new();
-            payloads.insert(payload.block_number, payload.clone());
+            payloads.insert(payload.block_number(), payload.clone());
             let tx_option = self.get_transaction(&tx_hash, &payloads).await?;
             let tx = tx_option.ok_or(eyre::eyre!("not reachable"))?;
 
@@ -221,7 +221,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
         let payload = payload.unwrap();
 
         let tx_hashes = payload
-            .transactions
+            .transactions()
             .iter()
             .map(|tx| keccak256(&**tx).into())
             .collect::<Vec<H256>>();
@@ -238,7 +238,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
 
         let expected_receipt_root = ordered_trie_root(receipts_encoded);
         let expected_receipt_root = H256::from_slice(&expected_receipt_root.to_fixed_bytes());
-        let payload_receipt_root = H256::from_slice(payload.receipts_root.as_bytes());
+        let payload_receipt_root = H256::from_slice(payload.receipts_root().as_bytes());
 
         if expected_receipt_root != payload_receipt_root || !receipts.contains(&receipt) {
             return Err(ExecutionError::ReceiptRootMismatch(tx_hash.to_string()).into());
@@ -274,7 +274,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
 
         let tx_encoded = tx.rlp().to_vec();
         let txs_encoded = payload
-            .transactions
+            .transactions()
             .iter()
             .map(|tx| tx.to_vec())
             .collect::<Vec<_>>();
