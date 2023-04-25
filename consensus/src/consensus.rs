@@ -97,7 +97,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         strict: bool,
     ) -> Result<Option<ExecutionPayload>> {
         let slot = slot.unwrap_or(self.store.optimistic_header.slot);
-        let block = if let Some(block) = self.rpc.get_block(slot).await? {
+        let block = if let Some(block) = self.rpc.get_block_ssz(slot).await? {
             block
         } else {
             return Ok(None);

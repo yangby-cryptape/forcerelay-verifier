@@ -19,6 +19,7 @@ async fn main() -> Result<()> {
         .filter_module("consensus", LevelFilter::Trace)
         .filter_module("execution", LevelFilter::Trace)
         .filter_module("forceth", LevelFilter::Trace)
+        .filter_module("cli", LevelFilter::Trace)
         .init();
 
     // Panics if [`libc::getrlimit`] or [`libc::setrlimit`] fail.
